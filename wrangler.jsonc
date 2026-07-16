@@ -13,16 +13,19 @@
 	"compatibility_flags": [
 		"nodejs_compat"
 	],
-	/**
-	 * QUÉ HACE: Define los Custom Domains para multi-tenancy.
-	 * POR QUÉ: Permite que el Worker responda en dominios específicos sin comodines.
-	 * CUIDADO: No usar barras ni comodines al final del patrón.
-	 */
 	"routes": [
-		{ "pattern": "api.integrales.com.ar", "custom_domain": true },
-		{ "pattern": "api.brotalia.com.ar", "custom_domain": true }
+		{
+			"pattern": "api.brotalia.com.ar",
+			"custom_domain": true
+		}
 	],
 	"vars": {
 		"SUPABASE_URL": "https://afzkyxpyoxafoqldfwjf.supabase.co"
-	}
+	},
+	"kv_namespaces": [
+		{
+			"binding": "PRICING_CACHE",
+			"id": "4605ee2ecc9a4b3c81dc8a713167d1b4"
+		}
+	]
 }

@@ -1,12 +1,3 @@
-// ─────────────────────────────────────────────────────────────
-// QUÉ HACE: Centraliza el cálculo de precios bajo la lógica V2 (Shadow Mode).
-// POR QUÉ:  Permite transicionar a un modelo de costos operativos + rentabilidad
-//           sin depender de markups ciegos (Fase 6 - Optimización).
-// CUIDADO:  Este archivo no debe ser importado en rutas productivas hasta
-//           completar la validación total de paridad.
-// ─────────────────────────────────────────────────────────────
-
-/** Costo fijo de embalaje por presentación en ARS */
 export const EMBALAJE_COST = 745.56;
 
 export interface TaxRule {
@@ -110,14 +101,8 @@ export function calculatePriceV2(input: PricingInput): PricingOutput {
   };
 }
 
-/** Margen de ganancia (Rentabilidad) por tienda y tipo de cliente en porcentaje */
-export const TENANT_MARKUPS = {
-  integrales: {
-    markupMinorista: 20,
-    markupMayorista: 15
-  },
-  brotalia: {
-    markupMinorista: 40,
-    markupMayorista: 30
-  }
+/** Margen de ganancia por tipo de cliente en porcentaje */
+export const DEFAULT_MARKUPS = {
+  minorista: 40,
+  mayorista: 30
 };

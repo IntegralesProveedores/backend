@@ -2,6 +2,25 @@ import { RawProduct, CleanProduct, CleanVariant, RawCategory } from "./types";
 import { TenantContext } from "./tenant";
 import { calculatePriceV2, TaxRule, EMBALAJE_COST } from "./pricing";
 
+export const DEFAULT_VOLUME_DISCOUNTS = [
+  { min: 31, factor: 1.25 },
+  { min: 21, factor: 1.20 },
+  { min: 11, factor: 1.15 },
+  { min: 6, factor: 1.10 },
+  { min: 3, factor: 1.05 },
+  { min: 1, factor: 1.00 }
+];
+
+export function resolveVolumeDiscountFactor(
+  equivalentPacks: number,
+  dbDiscounts: { min: number, factor: number }[] = []
+): number {
+  const discounts = dbDiscounts.length > 0 ? dbDiscounts : DEFAULT_VOLUME_DISCOUNTS;
+  const sortedDiscounts = [...discounts].sort((a, b) => b.min - a.min);
+  const discountEntry = sortedDiscounts.find(d => equivalentPacks >= d.min);
+  return discountEntry ? discountEntry.factor : 1;
+}
+
 /** Proyección mínima para listados (Summary) - Evita overfetching (B4) */
 export const PRODUCT_SUMMARY_SELECT = `
   id, name, slug, description, active, cost_usd, units_per_pack_master, diameter_cm, height_cm, volume_cc, created_at,
@@ -47,14 +66,7 @@ export function cleanProduct(
   if (!tenant) throw new Error("cleanProduct: tenant context is undefined");
 
   const taxes = dbTaxes;
-  const discounts = dbDiscounts.length > 0 ? dbDiscounts : [
-    { min: 31, factor: 1.25 },
-    { min: 21, factor: 1.20 },
-    { min: 11, factor: 1.15 },
-    { min: 6,  factor: 1.10 },
-    { min: 3,  factor: 1.05 },
-    { min: 1,  factor: 1.00 }
-  ];
+  const discounts = dbDiscounts.length > 0 ? dbDiscounts : DEFAULT_VOLUME_DISCOUNTS;
 
   const cats = (product.product_categories ?? [])
     .map(pc => pc.categories)
@@ -64,20 +76,12 @@ export function cleanProduct(
   const units_per_pack_master = Number(product.units_per_pack_master) || 1;
 
   const variants = (product.product_variants ?? [])
-    .filter(v => {
-      if (!v.is_active || v.deleted_at !== null) return false;
-      if (tenant.id === 'integrales') {
-        return Number(v.units_per_pack) === units_per_pack_master;
-      }
-      return true;
-    })
+    .filter(v => v.is_active && v.deleted_at === null)
     .map(v => {
       const presentation_quantity = Number(v.units_per_pack) || 1;
 
       const equivalentPacks = (presentation_quantity * quantity) / units_per_pack_master;
-      const sortedDiscounts = [...discounts].sort((a, b) => b.min - a.min);
-      const discountEntry = sortedDiscounts.find(d => equivalentPacks >= d.min);
-      const discountFactor = discountEntry ? discountEntry.factor : 1;
+      const discountFactor = resolveVolumeDiscountFactor(equivalentPacks, discounts);
 
       const costUsdMasterWithDiscount = Math.round((cost_usd_master / discountFactor + Number.EPSILON) * 100) / 100;
       const markup_val = Number(tenant.markupMinorista) || 0;
@@ -95,7 +99,7 @@ export function cleanProduct(
       const stockUnits = Number(v.stock) || 0;
 
       const ivaRule = taxes.find(t => t.name.toUpperCase() === 'IVA' && t.is_active);
-      const vat_included = ivaRule ? ivaRule.is_computable : true;
+      const vat_included = ivaRule ? ivaRule.is_computable : false;
       const vat_label = vat_included ? 'IVA Incluido' : 'IVA no incluido';
 
       const price_ars_val = Math.round(v2Result.precio_final_ars);

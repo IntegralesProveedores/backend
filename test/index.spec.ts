@@ -27,7 +27,6 @@ describe('Worker Routes Integration Tests', () => {
 		const data = await response.json() as any;
 		expect(data).toHaveProperty('items');
 		expect(data).toHaveProperty('pagination');
-		expect(data).toHaveProperty('tenant');
 		expect(Array.isArray(data.items)).toBe(true);
 		
 		if (data.items.length > 0) {
@@ -57,7 +56,6 @@ describe('Worker Routes Integration Tests', () => {
 		});
 		expect(response.status).toBe(200);
 		const data = await response.json() as any;
-		expect(data.tenant.id).toBe('brotalia');
-		expect(data.tenant.markup_applied).toBe(40);
+		expect(data).not.toHaveProperty('tenant');
 	});
 });

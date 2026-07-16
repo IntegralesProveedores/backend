@@ -16,7 +16,7 @@ describe('Pricing Engine V2 - Shadow Mode Validation', () => {
     { name: 'Floral 11', cost: 70, units: 100 }
   ];
 
-  describe('Tenant: Integrales (Rentabilidad 20%)', () => {
+  describe('Tenant: Base (Rentabilidad 20%)', () => {
     const RENTABILITY = 20;
 
     it.each(TEST_PRODUCTS)('Debe calcular correctamente el precio para $name', ({ cost, units }) => {

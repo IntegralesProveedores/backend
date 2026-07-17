@@ -3,13 +3,11 @@ import { getPricingConfig } from "../services/settings";
 import { jsonResponse, errorResponse } from "../lib/response";
 import { PRODUCT_SUMMARY_SELECT, PRODUCT_DETAIL_SELECT, cleanProduct, DEFAULT_VOLUME_DISCOUNTS } from "../lib/products";
 import { RouteContext } from "../lib/router";
-import { resolveTenantContext } from "../lib/tenant";
 import { RawProduct } from "../lib/types";
 
 export async function handleProducts({ env, url }: RouteContext) {
   try {
     const supabase = getSupabase(env);
-    const tenant = resolveTenantContext();
 
     const page = Math.max(1, parseInt(url.searchParams.get("page") || "1"));
     const limit = Math.min(50, Math.max(1, parseInt(url.searchParams.get("limit") || "20")));
@@ -62,7 +60,7 @@ export async function handleProducts({ env, url }: RouteContext) {
 
     return jsonResponse({
       items: products.map(p =>
-        cleanProduct(p, pricingConfig.exchangeRate, tenant, pricingConfig.embalageCost, quantity, taxes, volumeDiscounts)
+        cleanProduct(p, pricingConfig.exchangeRate, pricingConfig.markups.minorista, pricingConfig.embalageCost, quantity, taxes, volumeDiscounts)
       ),
       pricing_config: {
         exchange_rate: pricingConfig.exchangeRate,
@@ -92,7 +90,6 @@ export async function handleProductBySlug({ env, params, url }: RouteContext) {
 
     const quantity = Math.max(1, parseInt(url.searchParams.get("quantity") || "1"));
     const supabase = getSupabase(env);
-    const tenant = resolveTenantContext();
     const productQuery = supabase
       .from("products")
       .select(PRODUCT_DETAIL_SELECT)
@@ -139,7 +136,7 @@ export async function handleProductBySlug({ env, params, url }: RouteContext) {
     const product = data as unknown as RawProduct;
 
     return jsonResponse({
-      ...(cleanProduct(product, pricingConfig.exchangeRate, tenant, pricingConfig.embalageCost, quantity, taxes, volumeDiscounts)),
+      ...(cleanProduct(product, pricingConfig.exchangeRate, pricingConfig.markups.minorista, pricingConfig.embalageCost, quantity, taxes, volumeDiscounts)),
       pricing_config: {
         exchange_rate: pricingConfig.exchangeRate,
         embalaje_cost: pricingConfig.embalageCost,

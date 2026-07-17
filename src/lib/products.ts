@@ -1,5 +1,4 @@
 import { RawProduct, CleanProduct, CleanVariant, RawCategory } from "./types";
-import { TenantContext } from "./tenant";
 import { calculatePriceV2, TaxRule, EMBALAJE_COST } from "./pricing";
 
 export const DEFAULT_VOLUME_DISCOUNTS = [
@@ -56,14 +55,14 @@ export const PRODUCT_DETAIL_SELECT = `
 export function cleanProduct(
   product: RawProduct,
   exchangeRate: number = 1,
-  tenant: TenantContext,
+  markupMinorista: number,
   embalageCost: number = EMBALAJE_COST,
   quantity: number = 1,
   dbTaxes: TaxRule[] = [],
   dbDiscounts: { min: number, factor: number }[] = []
 ): CleanProduct {
   if (!product) throw new Error("cleanProduct: product is undefined");
-  if (!tenant) throw new Error("cleanProduct: tenant context is undefined");
+  if (!Number.isFinite(markupMinorista)) throw new Error("cleanProduct: markupMinorista is invalid");
 
   const taxes = dbTaxes;
   const discounts = dbDiscounts.length > 0 ? dbDiscounts : DEFAULT_VOLUME_DISCOUNTS;
@@ -84,7 +83,7 @@ export function cleanProduct(
       const discountFactor = resolveVolumeDiscountFactor(equivalentPacks, discounts);
 
       const costUsdMasterWithDiscount = Math.round((cost_usd_master / discountFactor + Number.EPSILON) * 100) / 100;
-      const markup_val = Number(tenant.markupMinorista) || 0;
+      const markup_val = Number(markupMinorista) || 0;
 
       const v2Result = calculatePriceV2({
         cost_usd_master: costUsdMasterWithDiscount,

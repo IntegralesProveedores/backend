@@ -3,7 +3,6 @@ import { getPricingConfig } from "../services/settings";
 import { errorResponse, jsonResponse } from "../lib/response";
 import { calculatePriceV2, TaxRule } from "../lib/pricing";
 import { resolveVolumeDiscountFactor } from "../lib/products";
-import { resolveTenantContext } from "../lib/tenant";
 
 type OrderItemInput = {
   variant_id: string;
@@ -50,7 +49,6 @@ export async function handleCreateOrder({ request, env }: { request: Request; en
     }
 
     const supabase = getSupabase(env);
-    const tenant = resolveTenantContext();
     const pricingConfig = await getPricingConfig(env);
 
     const [taxesResult, discountsResult] = await Promise.all([
@@ -130,7 +128,7 @@ export async function handleCreateOrder({ request, env }: { request: Request; en
         units_per_pack_master: unitsPerPackMaster,
         presentation_quantity: presentationQuantity,
         exchange_rate: pricingConfig.exchangeRate,
-        rentability_percentage: tenant.markupMinorista,
+        rentability_percentage: pricingConfig.markups.minorista,
         taxes,
         embalaje_cost: pricingConfig.embalageCost
       });

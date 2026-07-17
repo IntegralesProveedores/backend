@@ -2,6 +2,7 @@ import { Router } from "./lib/router";
 import { errorResponse } from "./lib/response";
 import { handleProducts, handleProductBySlug } from "./routes/products";
 import { handleCreateOrder } from "./routes/orders";
+import { handleSitemap } from "./routes/sitemap";
 import {
   handleCategories,
   handleCategoryBySlug,
@@ -37,6 +38,7 @@ router.get("/categories", handleCategories);
 router.get("/categories/:slug", handleCategoryBySlug);
 router.get("/categories/:slug/products", handleCategoryProducts);
 router.get("/settings", handleSettings);
+router.get("/sitemap.xml", handleSitemap);
 router.post("/orders", handleCreateOrder);
 
 export default {

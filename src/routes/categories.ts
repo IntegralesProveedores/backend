@@ -3,7 +3,6 @@ import { getPricingConfig } from "../services/settings";
 import { jsonResponse, errorResponse } from "../lib/response";
 import { PRODUCT_SUMMARY_SELECT, cleanProduct } from "../lib/products";
 import { RouteContext } from "../lib/router";
-import { resolveTenantContext } from "../lib/tenant";
 
 function cleanCategory(category: any) {
   return {
@@ -82,7 +81,6 @@ export async function handleCategoryBySlug({ env, params }: RouteContext) {
 
 export async function handleCategoryProducts({ env, params, url }: RouteContext) {
   const supabase = getSupabase(env);
-  const tenant = resolveTenantContext();
   const { slug } = params;
 
   const page = Math.max(1, parseInt(url.searchParams.get("page") || "1"));
@@ -124,7 +122,7 @@ export async function handleCategoryProducts({ env, params, url }: RouteContext)
 
   return jsonResponse({
     category: cleanCategory(category),
-    items: (products ?? []).map((p: any) => cleanProduct(p, pricingConfig.exchangeRate, tenant, pricingConfig.embalageCost)),
+    items: (products ?? []).map((p: any) => cleanProduct(p, pricingConfig.exchangeRate, pricingConfig.markups.minorista, pricingConfig.embalageCost)),
     pagination: {
       total: count || 0,
       page,

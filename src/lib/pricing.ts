@@ -101,8 +101,3 @@ export function calculatePriceV2(input: PricingInput): PricingOutput {
   };
 }
 
-/** Margen de ganancia por tipo de cliente en porcentaje */
-export const DEFAULT_MARKUPS = {
-  minorista: 40,
-  mayorista: 30
-};

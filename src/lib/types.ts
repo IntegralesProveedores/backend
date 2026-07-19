@@ -31,6 +31,7 @@ export interface RawProduct {
   name: string;
   slug: string;
   description: string | null;
+  detail: string | null;
   active: boolean;
   cost_usd: number;
   units_per_pack_master: number;
@@ -70,6 +71,7 @@ export interface CleanProduct {
   name: string;
   slug: string;
   description: string | null;
+  detail?: string | null;
   active: boolean;
   category: RawCategory | null;
   categories: RawCategory[];

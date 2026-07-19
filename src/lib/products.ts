@@ -22,7 +22,7 @@ export function resolveVolumeDiscountFactor(
 
 /** Proyección mínima para listados (Summary) - Evita overfetching (B4) */
 export const PRODUCT_SUMMARY_SELECT = `
-  id, name, slug, description, active, cost_usd, units_per_pack_master, diameter_cm, height_cm, volume_cc, created_at,
+  id, name, slug, description, detail, active, cost_usd, units_per_pack_master, diameter_cm, height_cm, volume_cc, created_at,
   product_categories (
     categories (
       id, name, slug
@@ -38,7 +38,7 @@ export const PRODUCT_SUMMARY_SELECT = `
 
 /** Proyección completa para detalle */
 export const PRODUCT_DETAIL_SELECT = `
-  id, name, slug, description, active, cost_usd, units_per_pack_master, diameter_cm, height_cm, volume_cc, created_at, updated_at,
+  id, name, slug, description, detail, active, cost_usd, units_per_pack_master, diameter_cm, height_cm, volume_cc, created_at, updated_at,
   product_categories (
     categories (
       id, name, slug, parent_id
@@ -135,6 +135,7 @@ export function cleanProduct(
     name: product.name,
     slug: product.slug,
     description: product.description,
+    detail: product.detail ?? null,
     active: product.active,
     cost_usd: Number(product.cost_usd) || 0,
     units_per_pack_master: Number(product.units_per_pack_master) || null,

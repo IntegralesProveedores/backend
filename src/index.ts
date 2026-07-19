@@ -15,11 +15,17 @@ const CORS_HEADERS = {
   "Access-Control-Allow-Headers": "Content-Type"
 };
 
+const ALLOWED_ORIGINS = [
+  "https://brotalia.com.ar",
+  "https://www.brotalia.com.ar",
+  "http://localhost:4200"
+];
+
 function withCors(request: Request, response: Response): Response {
   const headers = new Headers(response.headers);
   Object.entries(CORS_HEADERS).forEach(([key, value]) => headers.set(key, value));
   const origin = request.headers.get("Origin");
-  if (origin === "https://brotalia.com.ar" || origin === "http://localhost:4200") {
+  if (origin && ALLOWED_ORIGINS.includes(origin)) {
     headers.set("Access-Control-Allow-Origin", origin);
   } else {
     headers.delete("Access-Control-Allow-Origin");

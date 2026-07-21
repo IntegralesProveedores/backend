@@ -13,6 +13,18 @@ describe('Worker Routes Integration Tests', () => {
 		expect(await response.text()).toMatchInlineSnapshot(`"Not Found"`);
 	});
 
+	it('receives Mercado Pago webhook with an empty body', async () => {
+		const response = await SELF.fetch('https://example.com/api/webhooks/mercadopago?topic=payment&topic=merchant_order', {
+			method: 'POST'
+		});
+
+		expect(response.status).toBe(200);
+		expect(await response.json()).toEqual({
+			success: true,
+			message: 'Webhook received'
+		});
+	});
+
 	it('GET /settings returns USD exchange rate', async () => {
 		const response = await SELF.fetch('https://example.com/settings');
 		expect(response.status).toBe(200);

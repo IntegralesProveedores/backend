@@ -9,6 +9,7 @@ import {
   handleCategoryProducts
 } from "./routes/categories";
 import { handleSettings } from "./routes/settings";
+import { handleMercadoPagoWebhook } from "./routes/webhooks";
 
 const CORS_HEADERS = {
   "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
@@ -46,6 +47,7 @@ router.get("/categories/:slug/products", handleCategoryProducts);
 router.get("/settings", handleSettings);
 router.get("/sitemap.xml", handleSitemap);
 router.post("/orders", handleCreateOrder);
+router.post("/api/webhooks/mercadopago", handleMercadoPagoWebhook);
 
 export default {
   async fetch(request: Request, env: any) {

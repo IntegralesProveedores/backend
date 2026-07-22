@@ -9,6 +9,11 @@ declare namespace Cloudflare {
 		PRICING_CACHE: KVNamespace;
 		SUPABASE_URL: string;
 		SUPABASE_ANON_KEY: string;
+		SUPABASE_SERVICE_ROLE_KEY: string;
+		APP_BASE_URL: string;
+		MP_ACCESS_TOKEN: string;
+		MP_PUBLIC_KEY: string;
+		MP_WEBHOOK_SECRET: string;
 	}
 }
 interface Env extends Cloudflare.Env {}
@@ -16,7 +21,7 @@ type StringifyValues<EnvType extends Record<string, unknown>> = {
 	[Binding in keyof EnvType]: EnvType[Binding] extends string ? EnvType[Binding] : string;
 };
 declare namespace NodeJS {
-	interface ProcessEnv extends StringifyValues<Pick<Cloudflare.Env, "SUPABASE_URL" | "SUPABASE_ANON_KEY">> {}
+	interface ProcessEnv extends StringifyValues<Pick<Cloudflare.Env, "SUPABASE_URL" | "SUPABASE_ANON_KEY" | "SUPABASE_SERVICE_ROLE_KEY">> {}
 }
 
 // Begin runtime types

@@ -13,16 +13,26 @@ describe('Worker Routes Integration Tests', () => {
 		expect(await response.text()).toMatchInlineSnapshot(`"Not Found"`);
 	});
 
-	it('receives Mercado Pago webhook with an empty body', async () => {
-		const response = await SELF.fetch('https://example.com/api/webhooks/mercadopago?topic=payment&topic=merchant_order', {
-			method: 'POST'
-		});
+	it('rejects Mercado Pago webhook with an invalid signature', async () => {
+		const context = createExecutionContext();
+		const response = await worker.fetch(new IncomingRequest(
+			'https://example.com/api/webhooks/mercadopago?data.id=123',
+			{
+				method: 'POST',
+				headers: {
+					'x-request-id': 'test-request',
+					'x-signature': 'ts=1,v1=invalid'
+				}
+			}
+		), {
+			...env,
+			MP_ACCESS_TOKEN: 'test-access-token',
+			MP_PUBLIC_KEY: 'test-public-key',
+			MP_WEBHOOK_SECRET: 'test-webhook-secret'
+		}, context);
 
-		expect(response.status).toBe(200);
-		expect(await response.json()).toEqual({
-			success: true,
-			message: 'Webhook received'
-		});
+		expect(response.status).toBe(401);
+		await waitOnExecutionContext(context);
 	});
 
 	it('GET /settings returns USD exchange rate', async () => {

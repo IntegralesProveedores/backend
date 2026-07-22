@@ -20,7 +20,8 @@
 		}
 	],
 	"vars": {
-		"SUPABASE_URL": "https://afzkyxpyoxafoqldfwjf.supabase.co"
+		"SUPABASE_URL": "https://afzkyxpyoxafoqldfwjf.supabase.co",
+		"APP_BASE_URL": "https://brotalia.com.ar"
 	},
 	"kv_namespaces": [
 		{

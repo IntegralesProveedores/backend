@@ -37,7 +37,7 @@ export interface MercadoPagoPreferenceRequest {
     pending: string;
     failure: string;
   };
-  auto_return: "approved";
+  auto_return?: "approved";
   binary_mode: boolean;
   statement_descriptor: string;
   expiration_date_from: string;

@@ -14,6 +14,11 @@ declare namespace Cloudflare {
 		MP_ACCESS_TOKEN: string;
 		MP_PUBLIC_KEY: string;
 		MP_WEBHOOK_SECRET: string;
+		MP_WEBHOOK_NOTIFICATION_URL: string;
+		EMAILJS_SERVICE_ID: string;
+		EMAILJS_TEMPLATE_ID: string;
+		EMAILJS_PUBLIC_KEY: string;
+		EMAILJS_PRIVATE_KEY: string;
 	}
 }
 interface Env extends Cloudflare.Env {}

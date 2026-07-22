@@ -3,6 +3,7 @@ import { getPricingConfig } from "../services/settings";
 import { errorResponse, jsonResponse } from "../lib/response";
 import { calculatePriceV2, TaxRule } from "../lib/pricing";
 import { resolveVolumeDiscountFactor } from "../lib/products";
+import { createOrderRecord } from "../services/payment.service";
 
 type OrderItemInput = {
   variant_id: string;
@@ -162,6 +163,22 @@ export async function handleCreateOrder({ request, env }: { request: Request; en
     }
 
     const orderRef = crypto.randomUUID();
+
+    await createOrderRecord(
+      env,
+      customer,
+      validatedItems.map(item => ({
+        variant_id: item.variant_id,
+        sku: item.sku,
+        product_name: item.product_name,
+        quantity: item.quantity,
+        unit_price: item.price_ars
+      })),
+      totalArs,
+      pricingConfig.exchangeRate,
+      orderRef,
+      "manual"
+    );
 
     return jsonResponse({
       items: validatedItems,

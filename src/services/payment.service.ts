@@ -11,7 +11,7 @@ import {
 } from "../lib/mercadopago.types";
 import { MercadoPagoService } from "./mercadopago.service";
 
-interface PaymentCustomerInput {
+export interface PaymentCustomerInput {
   nombre: string;
   email: string;
   cuit: string;
@@ -57,11 +57,6 @@ interface VariantRow {
   products: ProductRow | ProductRow[] | null;
 }
 
-interface CreatedOrderRow {
-  id: string;
-  external_reference: string;
-}
-
 interface PaymentRow {
   id: string;
   order_id: string;
@@ -76,6 +71,36 @@ interface OrderPaymentRow {
   payment_status: string;
 }
 
+interface OrderConfirmationOrderRow {
+  id: string;
+  total_amount: number | string;
+  exchange_rate_used: number | string;
+}
+
+interface OrderConfirmationProductRow {
+  name: string;
+}
+
+interface OrderConfirmationVariantRow {
+  sku: string;
+  products: OrderConfirmationProductRow | OrderConfirmationProductRow[] | null;
+}
+
+interface OrderConfirmationItemRow {
+  product_variant_id: string;
+  quantity: number | string;
+  unit_price: number | string;
+  product_variants: OrderConfirmationVariantRow | OrderConfirmationVariantRow[] | null;
+}
+
+interface OrderConfirmationCustomerRow {
+  full_name: string;
+  email: string;
+  tax_id: string | null;
+  phone_area_code: string | null;
+  phone_number: string | null;
+}
+
 export class PaymentInputError extends Error {
   constructor(message: string) {
     super(message);
@@ -84,6 +109,7 @@ export class PaymentInputError extends Error {
 }
 
 interface PaymentQuoteItem extends MercadoPagoPreferenceItem {
+  sku: string;
   product_name: string;
   units_per_pack: number;
   price_usd: number;
@@ -108,6 +134,77 @@ const isPositiveInteger = (value: unknown): value is number => {
   return typeof value === "number" && Number.isInteger(value) && value > 0;
 };
 
+export async function createOrderRecord(
+  env: Env,
+  customer: PaymentCustomerInput,
+  items: Array<{
+    variant_id: string;
+    sku: string;
+    product_name: string;
+    quantity: number;
+    unit_price: number;
+  }>,
+  totalArs: number,
+  exchangeRate: number,
+  externalReference: string,
+  source: "mercadopago" | "manual"
+): Promise<{ id: string }> {
+  const supabase = getSupabase(env);
+  const paymentStatusBySource: Record<"mercadopago" | "manual", "pending"> = {
+    mercadopago: "pending",
+    manual: "pending"
+  };
+  const { data, error } = await supabase
+    .from("orders")
+    .insert({
+      customer_email: customer.email,
+      subtotal_amount: totalArs,
+      shipping_amount: 0,
+      total_amount: totalArs,
+      exchange_rate_used: exchangeRate,
+      status: "pending",
+      payment_status: paymentStatusBySource[source],
+      shipping_status: "pending",
+      external_reference: externalReference
+    })
+    .select("id")
+    .single();
+
+  if (error || !data) throw new Error(`Unable to create order: ${error?.message ?? "unknown error"}`);
+  const order = data as unknown as { id: string };
+
+  try {
+    const itemRows = items.map(item => ({
+      order_id: order.id,
+      product_variant_id: item.variant_id,
+      quantity: item.quantity,
+      unit_price: item.unit_price
+    }));
+    const [itemsResult, customerResult] = await Promise.all([
+      supabase.from("order_items").insert(itemRows),
+      supabase.from("order_customers").insert({
+        order_id: order.id,
+        customer_type: customer.cuit ? "business" : "consumer",
+        full_name: customer.nombre,
+        tax_id: customer.cuit,
+        tax_condition: "Consumidor Final",
+        email: customer.email,
+        phone_area_code: customer.codigoArea,
+        phone_number: customer.celular
+      })
+    ]);
+
+    if (itemsResult.error || customerResult.error) {
+      throw new Error(itemsResult.error?.message ?? customerResult.error?.message ?? "Unable to persist order details");
+    }
+  } catch (error) {
+    await supabase.from("orders").delete().eq("id", order.id);
+    throw error;
+  }
+
+  return order;
+}
+
 export class PaymentService {
   private readonly mercadoPago: MercadoPagoService;
 
@@ -121,7 +218,21 @@ export class PaymentService {
     const supabase = getSupabase(this.env);
     const quote = await this.buildQuote(input);
     const externalReference = crypto.randomUUID();
-    const createdOrder = await this.createPendingOrder(input, quote, externalReference);
+    const createdOrder = await createOrderRecord(
+      this.env,
+      input.customer,
+      quote.items.map(item => ({
+        variant_id: item.id,
+        sku: item.sku,
+        product_name: item.product_name,
+        quantity: item.quantity,
+        unit_price: item.unit_price
+      })),
+      quote.subtotal_ars,
+      quote.exchange_rate,
+      externalReference,
+      "mercadopago"
+    );
 
     try {
       const preference = await this.mercadoPago.createPreference(
@@ -257,6 +368,7 @@ export class PaymentService {
     if (updateOrderError) throw new Error(`Unable to update order: ${updateOrderError.message}`);
 
     if (payment.status === "approved") {
+      await this.sendOrderConfirmationEmail(order.id, payment);
       const { error: stockError } = await supabase.rpc("decrement_order_stock", {
         p_order_id: order.id
       });
@@ -279,6 +391,120 @@ export class PaymentService {
       return "cancelled";
     }
     return "pending";
+  }
+
+  private async sendOrderConfirmationEmail(
+    orderId: string,
+    payment: MercadoPagoPaymentResponse
+  ): Promise<void> {
+    try {
+      const supabase = getSupabase(this.env);
+      const [orderResult, itemsResult, customerResult] = await Promise.all([
+        supabase
+          .from("orders")
+          .select("id, total_amount, exchange_rate_used")
+          .eq("id", orderId)
+          .single(),
+        supabase
+          .from("order_items")
+          .select(`
+            product_variant_id,
+            quantity,
+            unit_price,
+            product_variants (
+              sku,
+              products (
+                name
+              )
+            )
+          `)
+          .eq("order_id", orderId),
+        supabase
+          .from("order_customers")
+          .select("full_name, email, tax_id, phone_area_code, phone_number")
+          .eq("order_id", orderId)
+          .single()
+      ]);
+
+      if (orderResult.error || !orderResult.data) {
+        throw new Error(`Unable to load order confirmation data: ${orderResult.error?.message ?? "order not found"}`);
+      }
+      if (itemsResult.error) {
+        throw new Error(`Unable to load order items for email: ${itemsResult.error.message}`);
+      }
+      if (customerResult.error || !customerResult.data) {
+        throw new Error(`Unable to load order customer for email: ${customerResult.error?.message ?? "customer not found"}`);
+      }
+
+      const order = orderResult.data as unknown as OrderConfirmationOrderRow;
+      const items = (itemsResult.data ?? []) as unknown as OrderConfirmationItemRow[];
+      const customer = customerResult.data as unknown as OrderConfirmationCustomerRow;
+      const escapeHtml = (value: unknown): string => String(value ?? "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#39;");
+      const formatAmount = (value: number | string): string => Number(value).toFixed(2);
+      const getVariant = (value: OrderConfirmationVariantRow | OrderConfirmationVariantRow[] | null) =>
+        Array.isArray(value) ? value[0] : value;
+      const getProduct = (value: OrderConfirmationProductRow | OrderConfirmationProductRow[] | null) =>
+        Array.isArray(value) ? value[0] : value;
+      const itemsHtml = items.map(item => {
+        const variant = getVariant(item.product_variants);
+        const product = getProduct(variant?.products ?? null);
+        const quantity = Number(item.quantity);
+        const unitPrice = Number(item.unit_price);
+        return `<tr><td>${escapeHtml(product?.name ?? "")}</td><td>${escapeHtml(variant?.sku ?? "")}</td><td>${quantity}</td><td>${formatAmount(unitPrice)}</td><td>${formatAmount(unitPrice * quantity)}</td></tr>`;
+      }).join("");
+      const phone = [customer.phone_area_code, customer.phone_number].filter(Boolean).join(" ");
+      const mensajeHtml = `
+        <h2>Confirmación de pedido</h2>
+        <h3>Cliente</h3>
+        <p><strong>Nombre:</strong> ${escapeHtml(customer.full_name)}<br>
+        <strong>Email:</strong> ${escapeHtml(customer.email)}<br>
+        <strong>CUIT:</strong> ${escapeHtml(customer.tax_id)}<br>
+        <strong>Teléfono:</strong> ${escapeHtml(phone)}</p>
+        <h3>Items</h3>
+        <table border="1" cellpadding="6" cellspacing="0">
+          <thead><tr><th>Nombre</th><th>SKU</th><th>Cantidad</th><th>Precio unitario</th><th>Subtotal</th></tr></thead>
+          <tbody>${itemsHtml}</tbody>
+        </table>
+        <p><strong>Total:</strong> ${formatAmount(order.total_amount)} ARS<br>
+        <strong>Cotización usada:</strong> ${formatAmount(order.exchange_rate_used)}</p>
+        <h3>Pago Mercado Pago</h3>
+        <p><strong>ID:</strong> ${escapeHtml(payment.id)}<br>
+        <strong>Estado:</strong> ${escapeHtml(payment.status)}<br>
+        <strong>Fecha de aprobación:</strong> ${escapeHtml(payment.date_approved)}</p>
+      `.trim();
+
+      const response = await fetch("https://api.emailjs.com/api/v1.0/email/send", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          service_id: this.env.EMAILJS_SERVICE_ID,
+          template_id: this.env.EMAILJS_TEMPLATE_ID,
+          user_id: this.env.EMAILJS_PUBLIC_KEY,
+          accessToken: this.env.EMAILJS_PRIVATE_KEY,
+          template_params: {
+            to_email: customer.email,
+            to_name: customer.full_name,
+            name: customer.full_name,
+            email: customer.email,
+            reply_to: customer.email,
+            telefono: phone,
+            order_id: orderId,
+            mensaje_html: mensajeHtml
+          }
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error(`EmailJS request failed with status ${response.status}: ${await response.text()}`);
+      }
+    } catch (error) {
+      console.error("Unable to send order confirmation email", error);
+    }
   }
 
   private validateInput(input: CreatePaymentInput): void {
@@ -384,6 +610,7 @@ export class PaymentService {
 
       items.push({
         id: variant.id,
+        sku: variant.sku,
         title: product.name,
         description: `SKU ${variant.sku}`,
         quantity: inputItem.quantity,
@@ -403,63 +630,6 @@ export class PaymentService {
       subtotal_usd: round2(subtotalUsd),
       exchange_rate: pricingConfig.exchangeRate
     };
-  }
-
-  private async createPendingOrder(
-    input: CreatePaymentInput,
-    quote: PaymentQuote,
-    externalReference: string
-  ): Promise<CreatedOrderRow> {
-    const supabase = getSupabase(this.env);
-    const { data, error } = await supabase
-      .from("orders")
-      .insert({
-        customer_email: input.customer.email,
-        subtotal_amount: quote.subtotal_ars,
-        shipping_amount: 0,
-        total_amount: quote.subtotal_ars,
-        exchange_rate_used: quote.exchange_rate,
-        status: "pending",
-        payment_status: "pending",
-        shipping_status: "pending",
-        external_reference: externalReference
-      })
-      .select("id, external_reference")
-      .single();
-
-    if (error || !data) throw new Error(`Unable to create order: ${error?.message ?? "unknown error"}`);
-    const order = data as unknown as CreatedOrderRow;
-
-    try {
-      const itemRows = quote.items.map(item => ({
-        order_id: order.id,
-        product_variant_id: item.id,
-        quantity: item.quantity,
-        unit_price: item.unit_price
-      }));
-      const [itemsResult, customerResult] = await Promise.all([
-        supabase.from("order_items").insert(itemRows),
-        supabase.from("order_customers").insert({
-          order_id: order.id,
-          customer_type: input.customer.cuit ? "business" : "consumer",
-          full_name: input.customer.nombre,
-          tax_id: input.customer.cuit,
-          tax_condition: "Consumidor Final",
-          email: input.customer.email,
-          phone_area_code: input.customer.codigoArea,
-          phone_number: input.customer.celular
-        })
-      ]);
-
-      if (itemsResult.error || customerResult.error) {
-        throw new Error(itemsResult.error?.message ?? customerResult.error?.message ?? "Unable to persist order details");
-      }
-    } catch (error) {
-      await supabase.from("orders").delete().eq("id", order.id);
-      throw error;
-    }
-
-    return order;
   }
 
   private buildPreference(
@@ -489,19 +659,19 @@ export class PaymentService {
 
     return {
       external_reference: externalReference,
-      notification_url: "https://api.brotalia.com.ar/api/webhooks/mercadopago",
+      notification_url: this.env.MP_WEBHOOK_NOTIFICATION_URL,
       back_urls: {
         success: `${appBaseUrl}/orden/exito`,
         pending: `${appBaseUrl}/orden/pendiente`,
         failure: `${appBaseUrl}/orden/error`
       },
-      auto_return: "approved",
+      ...(appBaseUrl.includes("localhost") ? {} : { auto_return: "approved" as const }),
       binary_mode: false,
       statement_descriptor: "BROTALIA",
       expiration_date_from: now.toISOString(),
       expiration_date_to: expiration.toISOString(),
       payer,
-      items: quote.items.map(({ product_name: _productName, units_per_pack: _unitsPerPack, price_usd: _priceUsd, subtotal_ars: _subtotalArs, subtotal_usd: _subtotalUsd, ...item }) => item),
+      items: quote.items.map(({ sku: _sku, product_name: _productName, units_per_pack: _unitsPerPack, price_usd: _priceUsd, subtotal_ars: _subtotalArs, subtotal_usd: _subtotalUsd, ...item }) => item),
       metadata: {
         order_id: orderId,
         external_reference: externalReference

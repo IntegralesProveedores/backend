@@ -24,9 +24,28 @@ interface PaymentItemInput {
   quantity: number;
 }
 
+export interface ShippingAddressInput {
+  recipient_name: string;
+  postal_code: string;
+  province: string;
+  locality: string;
+  county: string;
+  street: string;
+  street_number: string;
+  floor: string;
+  apartment: string;
+  country: string;
+}
+
+export interface ShippingInput {
+  method: "pickup" | "delivery";
+  address?: ShippingAddressInput;
+}
+
 export interface CreatePaymentInput {
   items: PaymentItemInput[];
   customer: PaymentCustomerInput;
+  shipping: ShippingInput;
 }
 
 interface PricingTaxRow {
@@ -101,6 +120,20 @@ interface OrderConfirmationCustomerRow {
   phone_number: string | null;
 }
 
+/** Fila de order_addresses usada para armar la sección "Envío" del mail de confirmación */
+interface OrderConfirmationAddressRow {
+  shipping_method: "pickup" | "delivery" | null;
+  recipient_name: string | null;
+  postal_code: string | null;
+  province: string | null;
+  locality: string | null;
+  county: string | null;
+  street: string | null;
+  street_number: string | null;
+  floor: string | null;
+  apartment: string | null;
+}
+
 export class PaymentInputError extends Error {
   constructor(message: string) {
     super(message);
@@ -147,7 +180,8 @@ export async function createOrderRecord(
   totalArs: number,
   exchangeRate: number,
   externalReference: string,
-  source: "mercadopago" | "manual"
+  source: "mercadopago" | "manual",
+  shipping: ShippingInput
 ): Promise<{ id: string }> {
   const supabase = getSupabase(env);
   const paymentStatusBySource: Record<"mercadopago" | "manual", "pending"> = {
@@ -180,7 +214,8 @@ export async function createOrderRecord(
       quantity: item.quantity,
       unit_price: item.unit_price
     }));
-    const [itemsResult, customerResult] = await Promise.all([
+    const address = shipping.method === "delivery" ? shipping.address! : undefined;
+    const [itemsResult, customerResult, addressResult] = await Promise.all([
       supabase.from("order_items").insert(itemRows),
       supabase.from("order_customers").insert({
         order_id: order.id,
@@ -191,11 +226,25 @@ export async function createOrderRecord(
         email: customer.email,
         phone_area_code: customer.codigoArea,
         phone_number: customer.celular
+      }),
+      supabase.from("order_addresses").insert({
+        order_id: order.id,
+        shipping_method: shipping.method,
+        recipient_name: address?.recipient_name ?? null,
+        postal_code: address?.postal_code ?? null,
+        province: address?.province ?? null,
+        locality: address?.locality ?? null,
+        county: address?.county ?? null,
+        street: address?.street ?? null,
+        street_number: address?.street_number ?? null,
+        floor: address?.floor ?? null,
+        apartment: address?.apartment ?? null,
+        country: address?.country ?? null
       })
     ]);
 
-    if (itemsResult.error || customerResult.error) {
-      throw new Error(itemsResult.error?.message ?? customerResult.error?.message ?? "Unable to persist order details");
+    if (itemsResult.error || customerResult.error || addressResult.error) {
+      throw new Error(itemsResult.error?.message ?? customerResult.error?.message ?? addressResult.error?.message ?? "Unable to persist order details");
     }
   } catch (error) {
     await supabase.from("orders").delete().eq("id", order.id);
@@ -231,7 +280,8 @@ export class PaymentService {
       quote.subtotal_ars,
       quote.exchange_rate,
       externalReference,
-      "mercadopago"
+      "mercadopago",
+      input.shipping
     );
 
     try {
@@ -393,13 +443,82 @@ export class PaymentService {
     return "pending";
   }
 
+  /**
+   * Arma el bloque HTML de la sección "Envío" para el mail de confirmación.
+   * Si no hay fila de dirección (o el método es 'pickup'), muestra el texto de
+   * coordinación por WhatsApp; si es 'delivery', muestra la dirección completa.
+   *
+   * TODO: unificar este template con el equivalente del frontend
+   * (checkout.component.ts -> generarSeccionEnvio) en un paquete compartido
+   * cuando se pueda — hoy corren en runtimes distintos (Cloudflare Worker vs
+   * browser) y se duplica el HTML a propósito.
+   */
+  private buildEnvioSectionHtml(
+    address: OrderConfirmationAddressRow | null,
+    escapeHtml: (value: unknown) => string
+  ): string {
+    if (!address || address.shipping_method === "pickup") {
+      return `
+        <div style="margin-top: 25px; padding: 18px; background-color: #f0f7ff; border-radius: 6px; border-left: 4px solid #2b5e2b;">
+          <p style="margin: 0 0 10px; color: #2b5e2b; font-weight: bold; font-size: 15px;">
+            📦 Coordiná tu retiro
+          </p>
+          <p style="margin: 0 0 10px; font-size: 13px; color: #444; line-height: 1.5;">
+            Escribinos por WhatsApp al <strong>+54 9 11 3022-6565</strong> para coordinar
+            día, horario y punto de retiro. Podés retirar en
+            <strong>Portela 875, Flores, CABA</strong> o en
+            <strong>Roosevelt 1935, Belgrano, CABA</strong>, según disponibilidad.
+          </p>
+          <p style="margin: 0; font-size: 12px; color: #777;">
+            Atendemos de lunes a jueves de 10 a 14 hs. Los mensajes enviados fuera de
+            ese horario se responden el día hábil siguiente dentro del horario indicado.
+          </p>
+        </div>
+      `;
+    }
+
+    const direccionCompleta = [
+      `${escapeHtml(address.street)} ${escapeHtml(address.street_number)}`,
+      address.floor ? `Piso ${escapeHtml(address.floor)}` : null,
+      address.apartment ? `Depto ${escapeHtml(address.apartment)}` : null
+    ].filter(Boolean).join(", ");
+
+    return `
+      <div style="margin-top: 25px;">
+        <h3 style="color: #2b5e2b; font-size: 15px; margin-bottom: 10px;">Dirección de envío</h3>
+        <table width="100%" style="border-collapse: collapse; font-size: 13px;">
+          <tr>
+            <td style="padding: 4px 0; color: #666; width: 140px;">Destinatario:</td>
+            <td style="padding: 4px 0; color: #333;">${escapeHtml(address.recipient_name)}</td>
+          </tr>
+          <tr>
+            <td style="padding: 4px 0; color: #666;">Dirección:</td>
+            <td style="padding: 4px 0; color: #333;">${direccionCompleta}</td>
+          </tr>
+          <tr>
+            <td style="padding: 4px 0; color: #666;">Localidad:</td>
+            <td style="padding: 4px 0; color: #333;">${escapeHtml(address.locality)}${address.county ? ` (${escapeHtml(address.county)})` : ""}</td>
+          </tr>
+          <tr>
+            <td style="padding: 4px 0; color: #666;">Provincia:</td>
+            <td style="padding: 4px 0; color: #333;">${escapeHtml(address.province)}</td>
+          </tr>
+          <tr>
+            <td style="padding: 4px 0; color: #666;">Código Postal:</td>
+            <td style="padding: 4px 0; color: #333;">${escapeHtml(address.postal_code)}</td>
+          </tr>
+        </table>
+      </div>
+    `;
+  }
+
   private async sendOrderConfirmationEmail(
     orderId: string,
     payment: MercadoPagoPaymentResponse
   ): Promise<void> {
     try {
       const supabase = getSupabase(this.env);
-      const [orderResult, itemsResult, customerResult] = await Promise.all([
+      const [orderResult, itemsResult, customerResult, addressResult] = await Promise.all([
         supabase
           .from("orders")
           .select("id, total_amount, exchange_rate_used")
@@ -423,7 +542,12 @@ export class PaymentService {
           .from("order_customers")
           .select("full_name, email, tax_id, phone_area_code, phone_number")
           .eq("order_id", orderId)
-          .single()
+          .single(),
+        supabase
+          .from("order_addresses")
+          .select("recipient_name, postal_code, province, locality, county, street, street_number, floor, apartment, shipping_method")
+          .eq("order_id", orderId)
+          .maybeSingle()
       ]);
 
       if (orderResult.error || !orderResult.data) {
@@ -435,10 +559,17 @@ export class PaymentService {
       if (customerResult.error || !customerResult.data) {
         throw new Error(`Unable to load order customer for email: ${customerResult.error?.message ?? "customer not found"}`);
       }
+      if (addressResult.error) {
+        // No bloqueamos el envío del mail por esto: preferimos mandar el mail
+        // sin la sección de envío (fallback a "pickup"/coordinación) antes que
+        // no mandar nada.
+        console.error("Unable to load order_addresses for confirmation email:", addressResult.error.message);
+      }
 
       const order = orderResult.data as unknown as OrderConfirmationOrderRow;
       const items = (itemsResult.data ?? []) as unknown as OrderConfirmationItemRow[];
       const customer = customerResult.data as unknown as OrderConfirmationCustomerRow;
+      const address = (addressResult.data ?? null) as unknown as OrderConfirmationAddressRow | null;
       const escapeHtml = (value: unknown): string => String(value ?? "")
         .replace(/&/g, "&amp;")
         .replace(/</g, "&lt;")
@@ -458,6 +589,7 @@ export class PaymentService {
         return `<tr><td>${escapeHtml(product?.name ?? "")}</td><td>${escapeHtml(variant?.sku ?? "")}</td><td>${quantity}</td><td>${formatAmount(unitPrice)}</td><td>${formatAmount(unitPrice * quantity)}</td></tr>`;
       }).join("");
       const phone = [customer.phone_area_code, customer.phone_number].filter(Boolean).join(" ");
+      const envioHtml = this.buildEnvioSectionHtml(address, escapeHtml);
       const mensajeHtml = `
         <h2>Confirmación de pedido</h2>
         <h3>Cliente</h3>
@@ -470,6 +602,7 @@ export class PaymentService {
           <thead><tr><th>Nombre</th><th>SKU</th><th>Cantidad</th><th>Precio unitario</th><th>Subtotal</th></tr></thead>
           <tbody>${itemsHtml}</tbody>
         </table>
+        ${envioHtml}
         <p><strong>Total:</strong> ${formatAmount(order.total_amount)} ARS<br>
         <strong>Cotización usada:</strong> ${formatAmount(order.exchange_rate_used)}</p>
         <h3>Pago Mercado Pago</h3>
@@ -515,6 +648,8 @@ export class PaymentService {
     if (!input.customer || !isValidEmail(input.customer.email)) {
       throw new PaymentInputError("customer.email is invalid");
     }
+
+    validateShippingInput(input.shipping);
 
     for (const item of input.items) {
       if (!item || typeof item.variant_id !== "string" || !item.variant_id || !isPositiveInteger(item.quantity)) {
@@ -698,6 +833,50 @@ export function parseCreatePaymentInput(value: unknown): CreatePaymentInput {
       cuit: String(customerRecord.cuit ?? "").trim(),
       codigoArea: String(customerRecord.codigoArea ?? "").trim(),
       celular: String(customerRecord.celular ?? "").trim()
+    },
+    shipping: parseShippingInput(record.shipping)
+  };
+}
+
+export function parseShippingInput(value: unknown): ShippingInput {
+  if (!value || typeof value !== "object") throw new PaymentInputError("shipping is required");
+  const record = value as Record<string, unknown>;
+  const method = record.method;
+  if (method !== "pickup" && method !== "delivery") {
+    throw new PaymentInputError("shipping.method must be pickup or delivery");
+  }
+
+  if (method === "pickup") return { method };
+  if (!record.address || typeof record.address !== "object") {
+    throw new PaymentInputError("shipping.address is required for delivery");
+  }
+
+  const address = record.address as Record<string, unknown>;
+  return {
+    method,
+    address: {
+      recipient_name: String(address.recipient_name ?? "").trim(),
+      postal_code: String(address.postal_code ?? "").trim(),
+      province: String(address.province ?? "").trim(),
+      locality: String(address.locality ?? "").trim(),
+      county: String(address.county ?? "").trim(),
+      street: String(address.street ?? "").trim(),
+      street_number: String(address.street_number ?? "").trim(),
+      floor: String(address.floor ?? "").trim(),
+      apartment: String(address.apartment ?? "").trim(),
+      country: String(address.country ?? "").trim()
     }
   };
+}
+
+export function validateShippingInput(shipping: ShippingInput): void {
+  if (!shipping || (shipping.method !== "pickup" && shipping.method !== "delivery")) {
+    throw new PaymentInputError("shipping.method must be pickup or delivery");
+  }
+  if (shipping.method === "delivery") {
+    const address = shipping.address;
+    if (!address || !address.street || !address.street_number || !address.postal_code || !address.province || !address.locality) {
+      throw new PaymentInputError("Delivery shipping requires street, street_number, postal_code, province, and locality");
+    }
+  }
 }

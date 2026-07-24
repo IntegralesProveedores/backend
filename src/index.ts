@@ -1,7 +1,7 @@
 import { Router } from "./lib/router";
 import { errorResponse } from "./lib/response";
 import { handleProducts, handleProductBySlug } from "./routes/products";
-import { handleCreateOrder } from "./routes/orders";
+import { handleCreateOrder, handleGetOrder } from "./routes/orders";
 import { handleSitemap } from "./routes/sitemap";
 import {
   handleCategories,
@@ -48,6 +48,7 @@ router.get("/categories/:slug/products", handleCategoryProducts);
 router.get("/settings", handleSettings);
 router.get("/sitemap.xml", handleSitemap);
 router.post("/orders", handleCreateOrder);
+router.get("/orders/:id", handleGetOrder);
 router.post("/payments/create", handleCreatePayment);
 router.post("/api/webhooks/mercadopago", handleMercadoPagoWebhook);
 

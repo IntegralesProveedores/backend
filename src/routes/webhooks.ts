@@ -40,6 +40,25 @@ async function readWebhookPaymentId(request: Request, url: URL): Promise<string 
 
 export async function handleMercadoPagoWebhook({ request, env, url }: RouteContext): Promise<Response> {
   const startedAt = Date.now();
+  const topic = url.searchParams.get("topic");
+  const type = url.searchParams.get("type");
+  const hasDataId = url.searchParams.has("data.id");
+  const notificationTopic = topic ?? type;
+  if (
+    !hasDataId ||
+    (topic !== null && topic !== "payment") ||
+    (type !== null && type !== "payment")
+  ) {
+    console.log(JSON.stringify({
+      event: "mercadopago_webhook_ignored_topic",
+      topic: notificationTopic,
+      detail: !hasDataId && topic !== null
+        ? "formato IPN legado"
+        : "notificación sin data.id o con tipo distinto de payment"
+    }));
+    return jsonResponse({ success: true, ignored: true });
+  }
+
   const requestId = request.headers.get("x-request-id");
   const xSignature = request.headers.get("x-signature");
   const paymentId = await readWebhookPaymentId(request, url);

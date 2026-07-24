@@ -3,7 +3,7 @@ import { getPricingConfig } from "../services/settings";
 import { errorResponse, jsonResponse } from "../lib/response";
 import { calculatePriceV2, TaxRule } from "../lib/pricing";
 import { resolveVolumeDiscountFactor } from "../lib/products";
-import { createOrderRecord } from "../services/payment.service";
+import { createOrderRecord, parseShippingInput, PaymentInputError, validateShippingInput, ShippingInput } from "../services/payment.service";
 
 type OrderItemInput = {
   variant_id: string;
@@ -21,6 +21,7 @@ type OrderCustomerInput = {
 type OrderBody = {
   items?: OrderItemInput[];
   customer?: OrderCustomerInput;
+  shipping?: unknown;
 };
 
 const round2 = (value: number): number => Math.round((value + Number.EPSILON) * 100) / 100;
@@ -34,6 +35,15 @@ export async function handleCreateOrder({ request, env }: { request: Request; en
     const body = await request.json() as OrderBody;
     const items = body?.items;
     const customer = body?.customer;
+    let shipping: ShippingInput;
+
+    try {
+      shipping = parseShippingInput(body?.shipping);
+      validateShippingInput(shipping);
+    } catch (error) {
+      if (error instanceof PaymentInputError) return errorResponse(error.message, 400);
+      throw error;
+    }
 
     if (!Array.isArray(items) || items.length === 0) {
       return errorResponse("items must be a non-empty array", 400);
@@ -177,7 +187,8 @@ export async function handleCreateOrder({ request, env }: { request: Request; en
       totalArs,
       pricingConfig.exchangeRate,
       orderRef,
-      "manual"
+      "manual",
+      shipping
     );
 
     return jsonResponse({
@@ -197,4 +208,56 @@ export async function handleCreateOrder({ request, env }: { request: Request; en
   } catch (e: any) {
     return errorResponse(`handleCreateOrder Error: ${e.message}`, 500, { stack: e.stack });
   }
+}
+
+/** Devuelve la orden agregada para el futuro detalle de /orden/:id. */
+export async function handleGetOrder({ env, params }: { env: any; params: Record<string, string> }) {
+  const orderId = params.id;
+  const supabase = getSupabase(env);
+  const [orderResult, itemsResult, customerResult, addressResult] = await Promise.all([
+    supabase.from("orders").select("*").eq("id", orderId).single(),
+    supabase.from("order_items").select("*").eq("order_id", orderId),
+    supabase.from("order_customers").select("*").eq("order_id", orderId).maybeSingle(),
+    supabase.from("order_addresses").select("*").eq("order_id", orderId).maybeSingle()
+  ]);
+
+  if (orderResult.error || !orderResult.data) {
+    return errorResponse("Order not found", 404);
+  }
+  if (itemsResult.error || customerResult.error || addressResult.error) {
+    return errorResponse("Unable to load order details", 500);
+  }
+
+  return jsonResponse({
+    order: orderResult.data,
+    items: (itemsResult.data ?? []).map((item: any) => ({
+      id: item.id,
+      variant_id: item.product_variant_id,
+      quantity: item.quantity,
+      unit_price: item.unit_price,
+      subtotal: Number(item.unit_price) * Number(item.quantity)
+    })),
+    customer: customerResult.data ? {
+      nombre: customerResult.data.full_name,
+      email: customerResult.data.email,
+      cuit: customerResult.data.tax_id,
+      codigoArea: customerResult.data.phone_area_code,
+      celular: customerResult.data.phone_number
+    } : null,
+    shipping: {
+      method: addressResult.data?.shipping_method ?? "pickup",
+      address: addressResult.data ? {
+        recipient_name: addressResult.data.recipient_name,
+        postal_code: addressResult.data.postal_code,
+        province: addressResult.data.province,
+        locality: addressResult.data.locality,
+        county: addressResult.data.county,
+        street: addressResult.data.street,
+        street_number: addressResult.data.street_number,
+        floor: addressResult.data.floor,
+        apartment: addressResult.data.apartment,
+        country: addressResult.data.country
+      } : null
+    }
+  });
 }

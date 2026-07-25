@@ -11,6 +11,8 @@ import {
 import { handleSettings } from "./routes/settings";
 import { handleMercadoPagoWebhook } from "./routes/webhooks";
 import { handleCreatePayment } from "./routes/payments";
+import { handlePostalCode } from "./routes/postal-code";
+import { handleShippingQuote } from "./routes/shipping";
 
 const CORS_HEADERS = {
   "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
@@ -46,6 +48,8 @@ router.get("/categories", handleCategories);
 router.get("/categories/:slug", handleCategoryBySlug);
 router.get("/categories/:slug/products", handleCategoryProducts);
 router.get("/settings", handleSettings);
+router.get("/postal-code/:postalCode", handlePostalCode);
+router.get("/shipping/quote", handleShippingQuote);
 router.get("/sitemap.xml", handleSitemap);
 router.post("/orders", handleCreateOrder);
 router.get("/orders/:id", handleGetOrder);

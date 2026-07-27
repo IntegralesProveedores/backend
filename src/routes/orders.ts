@@ -3,7 +3,7 @@ import { getPricingConfig } from "../services/settings";
 import { errorResponse, jsonResponse } from "../lib/response";
 import { calculatePriceV2, TaxRule } from "../lib/pricing";
 import { resolveVolumeDiscountFactor } from "../lib/products";
-import { createOrderRecord, parseShippingInput, PaymentInputError, validateShippingInput, ShippingInput } from "../services/payment.service";
+import { createOrderRecord, getShippingPriceArs, parseShippingInput, PaymentInputError, validateShippingInput, ShippingInput } from "../services/payment.service";
 
 type OrderItemInput = {
   variant_id: string;
@@ -88,6 +88,7 @@ export async function handleCreateOrder({ request, env }: { request: Request; en
     const validatedItems = [];
     let totalArs = 0;
     let totalUsd = 0;
+    let totalUnits = 0;
 
     for (const item of items) {
       const { data: variant, error } = await supabase
@@ -130,6 +131,7 @@ export async function handleCreateOrder({ request, env }: { request: Request; en
       const costUsdMaster = Number(product.cost_usd) || 0;
       const unitsPerPackMaster = Number(product.units_per_pack_master) || 1;
       const presentationQuantity = Number(variant.units_per_pack) || 1;
+      totalUnits += presentationQuantity * item.quantity;
       const equivalentPacks = (presentationQuantity * item.quantity) / unitsPerPackMaster;
       const discountFactor = resolveVolumeDiscountFactor(equivalentPacks, volumeDiscounts);
       const costUsdMasterWithDiscount = round2(costUsdMaster / discountFactor);
@@ -172,6 +174,9 @@ export async function handleCreateOrder({ request, env }: { request: Request; en
       });
     }
 
+    const shippingArs = await getShippingPriceArs(env, shipping, totalUnits);
+    totalArs += shippingArs;
+
     const orderRef = crypto.randomUUID();
 
     await createOrderRecord(
@@ -182,9 +187,10 @@ export async function handleCreateOrder({ request, env }: { request: Request; en
         sku: item.sku,
         product_name: item.product_name,
         quantity: item.quantity,
+        units_per_pack: item.units_per_pack,
         unit_price: item.price_ars
       })),
-      totalArs,
+      totalArs - shippingArs,
       pricingConfig.exchangeRate,
       orderRef,
       "manual",
@@ -194,6 +200,7 @@ export async function handleCreateOrder({ request, env }: { request: Request; en
     return jsonResponse({
       items: validatedItems,
       total_ars: totalArs,
+      shipping_ars: shippingArs,
       total_usd: round2(totalUsd),
       exchange_rate: pricingConfig.exchangeRate,
       order_ref: orderRef,

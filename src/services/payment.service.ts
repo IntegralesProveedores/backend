@@ -38,8 +38,14 @@ export interface ShippingAddressInput {
 }
 
 export interface ShippingInput {
-  method: "pickup" | "delivery";
+  method: "pickup" | "delivery" | "coordinar";
   address?: ShippingAddressInput;
+}
+
+interface ShippingResolution {
+  zone: string;
+  priceArs: number;
+  boxCount: number;
 }
 
 export interface CreatePaymentInput {
@@ -93,6 +99,7 @@ interface OrderPaymentRow {
 interface OrderConfirmationOrderRow {
   id: string;
   total_amount: number | string;
+  shipping_amount: number | string;
   exchange_rate_used: number | string;
 }
 
@@ -122,7 +129,7 @@ interface OrderConfirmationCustomerRow {
 
 /** Fila de order_addresses usada para armar la sección "Envío" del mail de confirmación */
 interface OrderConfirmationAddressRow {
-  shipping_method: "pickup" | "delivery" | null;
+  shipping_method: "pickup" | "delivery" | "coordinar" | null;
   recipient_name: string | null;
   postal_code: string | null;
   province: string | null;
@@ -154,6 +161,7 @@ interface PaymentQuote {
   items: PaymentQuoteItem[];
   subtotal_ars: number;
   subtotal_usd: number;
+  shipping_price_ars: number;
   exchange_rate: number;
 }
 
@@ -167,6 +175,102 @@ const isPositiveInteger = (value: unknown): value is number => {
   return typeof value === "number" && Number.isInteger(value) && value > 0;
 };
 
+export async function resolveBoxPlan(
+  env: Env,
+  totalUnits: number
+): Promise<{ boxModelId: string; boxCount: number } | null> {
+  const supabase = getSupabase(env);
+  const { data: models, error: modelsError } = await supabase
+    .from("pricing_shipping_box_models")
+    .select("id")
+    .eq("active", true);
+
+  if (modelsError) throw new Error(`Unable to load shipping box models: ${modelsError.message}`);
+  const modelIds = (models ?? []).map(model => String(model.id));
+  if (modelIds.length === 0) return null;
+
+  const { data: assignments, error: assignmentsError } = await supabase
+    .from("pricing_shipping_box_assignments")
+    .select("box_model_id, max_quantity")
+    .eq("active", true)
+    .in("box_model_id", modelIds)
+    .not("max_quantity", "is", null);
+
+  if (assignmentsError) throw new Error(`Unable to load shipping box capacities: ${assignmentsError.message}`);
+
+  const capacityByModel = new Map<string, number>();
+  for (const assignment of assignments ?? []) {
+    const capacity = Number(assignment.max_quantity);
+    const boxModelId = String(assignment.box_model_id);
+    if (Number.isFinite(capacity) && capacity > (capacityByModel.get(boxModelId) ?? 0)) {
+      capacityByModel.set(boxModelId, capacity);
+    }
+  }
+
+  const capacities = Array.from(capacityByModel, ([boxModelId, capacity]) => ({ boxModelId, capacity }))
+    .sort((a, b) => a.capacity - b.capacity);
+  if (capacities.length === 0) return null;
+
+  const selected = capacities.find(entry => entry.capacity >= totalUnits) ?? capacities[capacities.length - 1];
+  return {
+    boxModelId: selected.boxModelId,
+    boxCount: selected.capacity >= totalUnits ? 1 : Math.ceil(totalUnits / selected.capacity)
+  };
+}
+
+export async function resolveShippingRate(
+  env: Env,
+  postalCode: string,
+  totalUnits: number
+): Promise<ShippingResolution | null> {
+  const cp = Number.parseInt(postalCode, 10);
+  const supabase = getSupabase(env);
+  const { data: zoneData, error: zoneError } = await supabase
+    .from("pricing_shipping_zones")
+    .select("zone_name")
+    .eq("active", true)
+    .lte("postal_code_from", cp)
+    .gte("postal_code_to", cp)
+    .limit(1)
+    .maybeSingle();
+
+  if (zoneError) throw new Error(`Unable to resolve shipping zone: ${zoneError.message}`);
+  if (!zoneData?.zone_name) return null;
+
+  const boxPlan = await resolveBoxPlan(env, totalUnits);
+  if (!boxPlan) return null;
+
+  const { data: rateData, error: rateError } = await supabase
+    .from("pricing_shipping_rates")
+    .select("price_ars")
+    .eq("zone_name", zoneData.zone_name)
+    .eq("box_model_id", boxPlan.boxModelId)
+    .eq("delivery_speed", "standard")
+    .eq("active", true)
+    .limit(1)
+    .maybeSingle();
+
+  if (rateError) throw new Error(`Unable to resolve shipping rate: ${rateError.message}`);
+  if (!rateData) return null;
+
+  return {
+    zone: String(zoneData.zone_name),
+    priceArs: Math.round(Number(rateData.price_ars) * boxPlan.boxCount),
+    boxCount: boxPlan.boxCount
+  };
+}
+
+export async function getShippingPriceArs(
+  env: Env,
+  shipping: ShippingInput,
+  totalUnits: number
+): Promise<number> {
+  if (shipping.method === "pickup" || shipping.method === "coordinar") return 0;
+  if (!shipping.address?.postal_code) return 0;
+  const resolution = await resolveShippingRate(env, shipping.address.postal_code, totalUnits);
+  return resolution?.priceArs ?? 0;
+}
+
 export async function createOrderRecord(
   env: Env,
   customer: PaymentCustomerInput,
@@ -175,6 +279,7 @@ export async function createOrderRecord(
     sku: string;
     product_name: string;
     quantity: number;
+    units_per_pack: number;
     unit_price: number;
   }>,
   totalArs: number,
@@ -184,6 +289,9 @@ export async function createOrderRecord(
   shipping: ShippingInput
 ): Promise<{ id: string }> {
   const supabase = getSupabase(env);
+  const totalUnits = items.reduce((sum, item) => sum + item.quantity * item.units_per_pack, 0);
+  const shippingAmount = await getShippingPriceArs(env, shipping, totalUnits);
+  const totalAmount = totalArs + shippingAmount;
   const paymentStatusBySource: Record<"mercadopago" | "manual", "pending"> = {
     mercadopago: "pending",
     manual: "pending"
@@ -193,8 +301,8 @@ export async function createOrderRecord(
     .insert({
       customer_email: customer.email,
       subtotal_amount: totalArs,
-      shipping_amount: 0,
-      total_amount: totalArs,
+      shipping_amount: shippingAmount,
+      total_amount: totalAmount,
       exchange_rate_used: exchangeRate,
       status: "pending",
       payment_status: paymentStatusBySource[source],
@@ -229,6 +337,8 @@ export async function createOrderRecord(
       }),
       supabase.from("order_addresses").insert({
         order_id: order.id,
+        // TODO: agregar 'coordinar' al CHECK de order_addresses.shipping_method
+        // mediante una migración de Supabase antes de desplegar este método.
         shipping_method: shipping.method,
         recipient_name: address?.recipient_name ?? null,
         postal_code: address?.postal_code ?? null,
@@ -275,9 +385,10 @@ export class PaymentService {
         sku: item.sku,
         product_name: item.product_name,
         quantity: item.quantity,
+        units_per_pack: item.units_per_pack,
         unit_price: item.unit_price
       })),
-      quote.subtotal_ars,
+      quote.subtotal_ars - quote.shipping_price_ars,
       quote.exchange_rate,
       externalReference,
       "mercadopago",
@@ -455,8 +566,32 @@ export class PaymentService {
    */
   private buildEnvioSectionHtml(
     address: OrderConfirmationAddressRow | null,
-    escapeHtml: (value: unknown) => string
+    shippingAmountArs: number,
+    escapeHtml: (value: unknown) => string,
+    formatAmount: (value: number | string) => string
   ): string {
+    if (address?.shipping_method === "coordinar") {
+      return `
+        <div style="margin-top: 25px; padding: 18px; background-color: #f0f7ff; border-radius: 6px; border-left: 4px solid #2b5e2b;">
+          <p style="margin: 0 0 10px; color: #2b5e2b; font-weight: bold; font-size: 15px;">
+            💬 Coordinemos tu envío
+          </p>
+          <p style="margin: 0 0 10px; font-size: 13px; color: #444; line-height: 1.5;">
+            Escribinos por WhatsApp al <strong>+54 9 11 3022-6565</strong> para coordinar
+            el método de envío (transporte, micro o expreso), el costo y los tiempos
+            según tu localidad.
+          </p>
+          <p style="margin: 0; font-size: 12px; color: #777;">
+            Te respondemos de lunes a jueves de 10 a 14 hs. Los mensajes fuera de ese
+            horario se responden el día hábil siguiente dentro del horario indicado.
+          </p>
+          <p style="margin: 10px 0 0; font-size: 13px; color: #444;">
+            El costo de envío se coordina por WhatsApp según transporte y destino.
+          </p>
+        </div>
+      `;
+    }
+
     if (!address || address.shipping_method === "pickup") {
       return `
         <div style="margin-top: 25px; padding: 18px; background-color: #f0f7ff; border-radius: 6px; border-left: 4px solid #2b5e2b;">
@@ -503,10 +638,14 @@ export class PaymentService {
             <td style="padding: 4px 0; color: #666;">Provincia:</td>
             <td style="padding: 4px 0; color: #333;">${escapeHtml(address.province)}</td>
           </tr>
-          <tr>
-            <td style="padding: 4px 0; color: #666;">Código Postal:</td>
-            <td style="padding: 4px 0; color: #333;">${escapeHtml(address.postal_code)}</td>
-          </tr>
+        <tr>
+          <td style="padding: 4px 0; color: #666;">Código Postal:</td>
+          <td style="padding: 4px 0; color: #333;">${escapeHtml(address.postal_code)}</td>
+        </tr>
+        <tr>
+          <td style="padding: 4px 0; color: #666;">Costo de envío:</td>
+          <td style="padding: 4px 0; color: #333;">$${formatAmount(shippingAmountArs)}</td>
+        </tr>
         </table>
       </div>
     `;
@@ -521,7 +660,7 @@ export class PaymentService {
       const [orderResult, itemsResult, customerResult, addressResult] = await Promise.all([
         supabase
           .from("orders")
-          .select("id, total_amount, exchange_rate_used")
+          .select("id, total_amount, shipping_amount, exchange_rate_used")
           .eq("id", orderId)
           .single(),
         supabase
@@ -589,7 +728,7 @@ export class PaymentService {
         return `<tr><td>${escapeHtml(product?.name ?? "")}</td><td>${escapeHtml(variant?.sku ?? "")}</td><td>${quantity}</td><td>${formatAmount(unitPrice)}</td><td>${formatAmount(unitPrice * quantity)}</td></tr>`;
       }).join("");
       const phone = [customer.phone_area_code, customer.phone_number].filter(Boolean).join(" ");
-      const envioHtml = this.buildEnvioSectionHtml(address, escapeHtml);
+      const envioHtml = this.buildEnvioSectionHtml(address, Number(order.shipping_amount), escapeHtml, formatAmount);
       const mensajeHtml = `
         <h2>Confirmación de pedido</h2>
         <h3>Cliente</h3>
@@ -689,6 +828,7 @@ export class PaymentService {
     const items: PaymentQuoteItem[] = [];
     let subtotalArs = 0;
     let subtotalUsd = 0;
+    let totalUnits = 0;
 
     for (const inputItem of input.items) {
       const { data, error } = await supabase
@@ -724,6 +864,7 @@ export class PaymentService {
 
       const unitsPerPackMaster = Number(product.units_per_pack_master) || 1;
       const presentationQuantity = Number(variant.units_per_pack) || 1;
+      totalUnits += presentationQuantity * inputItem.quantity;
       const equivalentPacks = (presentationQuantity * inputItem.quantity) / unitsPerPackMaster;
       const discountFactor = resolveVolumeDiscountFactor(equivalentPacks, discounts);
       const pricing = calculatePriceV2({
@@ -759,10 +900,13 @@ export class PaymentService {
       });
     }
 
+    const shippingArs = await getShippingPriceArs(this.env, input.shipping, totalUnits);
+
     return {
       items,
-      subtotal_ars: subtotalArs,
+      subtotal_ars: subtotalArs + shippingArs,
       subtotal_usd: round2(subtotalUsd),
+      shipping_price_ars: shippingArs,
       exchange_rate: pricingConfig.exchangeRate
     };
   }
@@ -806,7 +950,17 @@ export class PaymentService {
       expiration_date_from: now.toISOString(),
       expiration_date_to: expiration.toISOString(),
       payer,
-      items: quote.items.map(({ sku: _sku, product_name: _productName, units_per_pack: _unitsPerPack, price_usd: _priceUsd, subtotal_ars: _subtotalArs, subtotal_usd: _subtotalUsd, ...item }) => item),
+      items: [
+        ...quote.items.map(({ sku: _sku, product_name: _productName, units_per_pack: _unitsPerPack, price_usd: _priceUsd, subtotal_ars: _subtotalArs, subtotal_usd: _subtotalUsd, ...item }) => item),
+        ...(quote.shipping_price_ars > 0 ? [{
+          id: "shipping",
+          title: "Costo de envío",
+          description: "Envío a domicilio",
+          quantity: 1,
+          currency_id: "ARS" as const,
+          unit_price: quote.shipping_price_ars
+        }] : [])
+      ],
       metadata: {
         order_id: orderId,
         external_reference: externalReference
@@ -842,11 +996,11 @@ export function parseShippingInput(value: unknown): ShippingInput {
   if (!value || typeof value !== "object") throw new PaymentInputError("shipping is required");
   const record = value as Record<string, unknown>;
   const method = record.method;
-  if (method !== "pickup" && method !== "delivery") {
-    throw new PaymentInputError("shipping.method must be pickup or delivery");
+  if (method !== "pickup" && method !== "delivery" && method !== "coordinar") {
+    throw new PaymentInputError("shipping.method must be pickup, delivery, or coordinar");
   }
 
-  if (method === "pickup") return { method };
+  if (method === "pickup" || method === "coordinar") return { method };
   if (!record.address || typeof record.address !== "object") {
     throw new PaymentInputError("shipping.address is required for delivery");
   }
@@ -870,13 +1024,15 @@ export function parseShippingInput(value: unknown): ShippingInput {
 }
 
 export function validateShippingInput(shipping: ShippingInput): void {
-  if (!shipping || (shipping.method !== "pickup" && shipping.method !== "delivery")) {
-    throw new PaymentInputError("shipping.method must be pickup or delivery");
+  if (!shipping || (shipping.method !== "pickup" && shipping.method !== "delivery" && shipping.method !== "coordinar")) {
+    throw new PaymentInputError("shipping.method must be pickup, delivery, or coordinar");
   }
   if (shipping.method === "delivery") {
     const address = shipping.address;
-    if (!address || !address.street || !address.street_number || !address.postal_code || !address.province || !address.locality) {
-      throw new PaymentInputError("Delivery shipping requires street, street_number, postal_code, province, and locality");
+    const province = address?.province.trim().toLocaleLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+    const isCaba = province === "ciudad autonoma de buenos aires" || province === "caba";
+    if (!address || !address.street || !address.street_number || !address.postal_code || !address.province || (!isCaba && !address.locality)) {
+      throw new PaymentInputError("Delivery shipping requires street, street_number, postal_code, province, and locality outside CABA");
     }
   }
 }

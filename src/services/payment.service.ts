@@ -340,7 +340,11 @@ export async function createOrderRecord(
         // TODO: agregar 'coordinar' al CHECK de order_addresses.shipping_method
         // mediante una migración de Supabase antes de desplegar este método.
         shipping_method: shipping.method,
-        recipient_name: address?.recipient_name ?? null,
+        // Para pickup/coordinar no hay dirección cargada, pero la columna es
+        // NOT NULL: usamos el nombre del comprador como destinatario por
+        // defecto (siempre es la misma persona, ver checkout sin checkbox de
+        // "mismo destinatario").
+        recipient_name: address?.recipient_name ?? customer.nombre ?? null,
         postal_code: address?.postal_code ?? null,
         province: address?.province ?? null,
         locality: address?.locality ?? null,

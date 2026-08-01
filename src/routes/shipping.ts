@@ -19,7 +19,8 @@ export async function handleShippingQuote({ env, url }: RouteContext) {
       postal_code: postalCode,
       zone: resolution.zone,
       price_ars: resolution.priceArs,
-      box_count: resolution.boxCount
+      box_count: resolution.boxCount,
+      boxes: resolution.boxes
     });
   } catch (e: any) {
     return errorResponse(`Shipping quote Handler Error: ${e.message}`, 500, { stack: e.stack });

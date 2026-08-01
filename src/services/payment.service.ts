@@ -42,9 +42,21 @@ export interface ShippingInput {
   address?: ShippingAddressInput;
 }
 
+export interface ShippingBox {
+  boxModelId: string;
+  boxModelName: string;
+  widthCm: number;
+  lengthCm: number;
+  heightCm: number;
+  weightKg: number;
+  count: number;
+  unitPriceArs: number;
+}
+
 interface ShippingResolution {
   zone: string;
   priceArs: number;
+  boxes: ShippingBox[];
   boxCount: number;
 }
 
@@ -175,46 +187,105 @@ const isPositiveInteger = (value: unknown): value is number => {
   return typeof value === "number" && Number.isInteger(value) && value > 0;
 };
 
-export async function resolveBoxPlan(
+export async function resolveShippingBoxPlan(
   env: Env,
-  totalUnits: number
-): Promise<{ boxModelId: string; boxCount: number } | null> {
+  zoneName: string,
+  totalUnits: number,
+  deliverySpeed = "standard"
+): Promise<{ boxes: ShippingBox[]; totalPriceArs: number }> {
+  if (totalUnits === 0) return { boxes: [], totalPriceArs: 0 };
+
   const supabase = getSupabase(env);
-  const { data: models, error: modelsError } = await supabase
-    .from("pricing_shipping_box_models")
-    .select("id")
-    .eq("active", true);
-
-  if (modelsError) throw new Error(`Unable to load shipping box models: ${modelsError.message}`);
-  const modelIds = (models ?? []).map(model => String(model.id));
-  if (modelIds.length === 0) return null;
-
-  const { data: assignments, error: assignmentsError } = await supabase
-    .from("pricing_shipping_box_assignments")
-    .select("box_model_id, max_quantity")
+  const { data: rates, error } = await supabase
+    .from("pricing_shipping_rates")
+    .select("price_ars, box_model_id, pricing_shipping_box_models!inner(id, name, width_cm, length_cm, height_cm, weight_kg, pricing_shipping_box_assignments!inner(max_quantity))")
+    .eq("zone_name", zoneName)
+    .eq("delivery_speed", deliverySpeed)
     .eq("active", true)
-    .in("box_model_id", modelIds)
-    .not("max_quantity", "is", null);
+    .eq("pricing_shipping_box_models.active", true)
+    .eq("pricing_shipping_box_models.pricing_shipping_box_assignments.active", true);
 
-  if (assignmentsError) throw new Error(`Unable to load shipping box capacities: ${assignmentsError.message}`);
+  if (error) throw new Error(`Unable to load shipping boxes and rates: ${error.message}`);
 
-  const capacityByModel = new Map<string, number>();
-  for (const assignment of assignments ?? []) {
-    const capacity = Number(assignment.max_quantity);
-    const boxModelId = String(assignment.box_model_id);
-    if (Number.isFinite(capacity) && capacity > (capacityByModel.get(boxModelId) ?? 0)) {
-      capacityByModel.set(boxModelId, capacity);
+  const capacities = new Map<string, {
+    capacity: number;
+    priceArs: number;
+    name: string;
+    widthCm: number;
+    lengthCm: number;
+    heightCm: number;
+    weightKg: number;
+  }>();
+
+  for (const rate of rates ?? []) {
+    const model = Array.isArray(rate.pricing_shipping_box_models)
+      ? rate.pricing_shipping_box_models[0]
+      : rate.pricing_shipping_box_models;
+    if (!model) continue;
+
+    const assignments = Array.isArray(model.pricing_shipping_box_assignments)
+      ? model.pricing_shipping_box_assignments
+      : [model.pricing_shipping_box_assignments];
+    const capacity = Math.max(...assignments.map((assignment: any) => Number(assignment?.max_quantity)).filter(Number.isFinite));
+    if (!Number.isFinite(capacity) || capacity <= 0) continue;
+
+    const boxModelId = String(rate.box_model_id ?? model.id);
+    const candidate = {
+      capacity,
+      priceArs: Math.round(Number(rate.price_ars)),
+      name: String(model.name),
+      widthCm: Number(model.width_cm),
+      lengthCm: Number(model.length_cm),
+      heightCm: Number(model.height_cm),
+      weightKg: Number(model.weight_kg)
+    };
+    const previous = capacities.get(boxModelId);
+    if (!previous || candidate.capacity > previous.capacity) capacities.set(boxModelId, candidate);
+  }
+
+  const boxes = Array.from(capacities, ([boxModelId, box]) => ({ boxModelId, ...box }));
+  if (boxes.length === 0) {
+    throw new Error(`No active shipping rates found for zone "${zoneName}" and delivery speed "${deliverySpeed}"`);
+  }
+
+  const dp = Array<number>(totalUnits + 1).fill(Number.POSITIVE_INFINITY);
+  const previous = Array<{ units: number; boxIndex: number } | null>(totalUnits + 1).fill(null);
+  dp[0] = 0;
+  for (let units = 1; units <= totalUnits; units++) {
+    for (let boxIndex = 0; boxIndex < boxes.length; boxIndex++) {
+      const box = boxes[boxIndex];
+      const priorUnits = Math.max(0, units - box.capacity);
+      const candidateCost = dp[priorUnits] + box.priceArs;
+      if (candidateCost < dp[units]) {
+        dp[units] = candidateCost;
+        previous[units] = { units: priorUnits, boxIndex };
+      }
     }
   }
 
-  const capacities = Array.from(capacityByModel, ([boxModelId, capacity]) => ({ boxModelId, capacity }))
-    .sort((a, b) => a.capacity - b.capacity);
-  if (capacities.length === 0) return null;
+  const counts = new Map<string, number>();
+  for (let units = totalUnits; units > 0;) {
+    const step = previous[units];
+    if (!step) throw new Error(`Unable to build a shipping box plan for ${totalUnits} units`);
+    const box = boxes[step.boxIndex];
+    counts.set(box.boxModelId, (counts.get(box.boxModelId) ?? 0) + 1);
+    units = step.units;
+  }
 
-  const selected = capacities.find(entry => entry.capacity >= totalUnits) ?? capacities[capacities.length - 1];
   return {
-    boxModelId: selected.boxModelId,
-    boxCount: selected.capacity >= totalUnits ? 1 : Math.ceil(totalUnits / selected.capacity)
+    boxes: boxes
+      .filter(box => counts.has(box.boxModelId))
+      .map(box => ({
+        boxModelId: box.boxModelId,
+        boxModelName: box.name,
+        widthCm: box.widthCm,
+        lengthCm: box.lengthCm,
+        heightCm: box.heightCm,
+        weightKg: box.weightKg,
+        count: counts.get(box.boxModelId)!,
+        unitPriceArs: box.priceArs
+      })),
+    totalPriceArs: Math.round(dp[totalUnits])
   };
 }
 
@@ -237,26 +308,13 @@ export async function resolveShippingRate(
   if (zoneError) throw new Error(`Unable to resolve shipping zone: ${zoneError.message}`);
   if (!zoneData?.zone_name) return null;
 
-  const boxPlan = await resolveBoxPlan(env, totalUnits);
-  if (!boxPlan) return null;
-
-  const { data: rateData, error: rateError } = await supabase
-    .from("pricing_shipping_rates")
-    .select("price_ars")
-    .eq("zone_name", zoneData.zone_name)
-    .eq("box_model_id", boxPlan.boxModelId)
-    .eq("delivery_speed", "standard")
-    .eq("active", true)
-    .limit(1)
-    .maybeSingle();
-
-  if (rateError) throw new Error(`Unable to resolve shipping rate: ${rateError.message}`);
-  if (!rateData) return null;
+  const boxPlan = await resolveShippingBoxPlan(env, String(zoneData.zone_name), totalUnits);
 
   return {
     zone: String(zoneData.zone_name),
-    priceArs: Math.round(Number(rateData.price_ars) * boxPlan.boxCount),
-    boxCount: boxPlan.boxCount
+    priceArs: boxPlan.totalPriceArs,
+    boxes: boxPlan.boxes,
+    boxCount: boxPlan.boxes.reduce((sum, box) => sum + box.count, 0)
   };
 }
 

@@ -55,6 +55,7 @@ export interface PricingConfig {
     minorista: number;
     mayorista: number;
   };
+  shippingPriceBufferPercentage: number;
 }
 
 export async function getPricingConfig(env: any): Promise<PricingConfig> {
@@ -64,7 +65,8 @@ export async function getPricingConfig(env: any): Promise<PricingConfig> {
     markups: {
       minorista: 40,
       mayorista: 30
-    }
+    },
+    shippingPriceBufferPercentage: 40
   };
 
   const cacheKey = "pricing_config";
@@ -102,7 +104,7 @@ export async function getPricingConfig(env: any): Promise<PricingConfig> {
 
     const { data, error } = await supabase
       .from("settings")
-      .select("usd_exchange_rate, updated_at, embalaje_cost, markup_minorista, markup_mayorista")
+      .select("usd_exchange_rate, updated_at, embalaje_cost, markup_minorista, markup_mayorista, shipping_price_buffer_percentage")
       .eq("id", true)
       .single();
 
@@ -140,13 +142,18 @@ export async function getPricingConfig(env: any): Promise<PricingConfig> {
       ? Number(data.markup_mayorista)
       : fallback.markups.mayorista;
 
+    const shippingPriceBufferPercentage = data.shipping_price_buffer_percentage !== null && data.shipping_price_buffer_percentage !== undefined
+      ? Number(data.shipping_price_buffer_percentage)
+      : fallback.shippingPriceBufferPercentage;
+
     const result: PricingConfig = {
       exchangeRate,
       embalageCost,
       markups: {
         minorista,
         mayorista
-      }
+      },
+      shippingPriceBufferPercentage
     };
     await persistCache(result);
     return result;

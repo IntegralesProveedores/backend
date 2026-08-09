@@ -164,6 +164,7 @@ interface PaymentQuoteItem extends MercadoPagoPreferenceItem {
   sku: string;
   product_name: string;
   units_per_pack: number;
+  units_per_pack_master: number;
   price_usd: number;
   subtotal_ars: number;
   subtotal_usd: number;
@@ -196,6 +197,8 @@ export async function resolveShippingBoxPlan(
   if (totalUnits === 0) return { boxes: [], totalPriceArs: 0 };
 
   const supabase = getSupabase(env);
+  const { shippingPriceBufferPercentage } = await getPricingConfig(env);
+  const bufferFactor = 1 + shippingPriceBufferPercentage / 100;
   const { data: rates, error } = await supabase
     .from("pricing_shipping_rates")
     .select("price_ars, box_model_id, pricing_shipping_box_models!inner(id, name, width_cm, length_cm, height_cm, weight_kg, pricing_shipping_box_assignments!inner(max_quantity))")
@@ -232,7 +235,7 @@ export async function resolveShippingBoxPlan(
     const boxModelId = String(rate.box_model_id ?? model.id);
     const candidate = {
       capacity,
-      priceArs: Math.round(Number(rate.price_ars)),
+      priceArs: Math.round(Number(rate.price_ars) * bufferFactor),
       name: String(model.name),
       widthCm: Number(model.width_cm),
       lengthCm: Number(model.length_cm),
@@ -289,34 +292,64 @@ export async function resolveShippingBoxPlan(
   };
 }
 
+
+/** Extrae los 4 dígitos numéricos de un código postal, sea formato viejo (1428)
+ *  o CPA completo (C1428BOB). Devuelve null si no encuentra 4 dígitos válidos. */
+function extractPostalCodeDigits(rawPostalCode: string): string | null {
+  const digits = (rawPostalCode ?? "").replace(/\D/g, "").slice(0, 4);
+  return /^\d{4}$/.test(digits) ? digits : null;
+}
+
 export async function resolveShippingRate(
   env: Env,
   postalCode: string,
   totalUnits: number
 ): Promise<ShippingResolution | null> {
-  const cp = Number.parseInt(postalCode, 10);
   const supabase = getSupabase(env);
-  const { data: zoneData, error: zoneError } = await supabase
-    .from("pricing_shipping_zones")
-    .select("zone_name")
-    .eq("active", true)
-    .lte("postal_code_from", cp)
-    .gte("postal_code_to", cp)
+  const normalizedPostalCode = extractPostalCodeDigits(postalCode);
+  if (!normalizedPostalCode) return null;
+
+  // 1) Fuente de verdad: buscar la provincia real por código postal exacto
+  const { data: postalData, error: postalError } = await supabase
+    .from("postal_codes_ar")
+    .select("province")
+    .eq("postal_code", normalizedPostalCode)
     .limit(1)
     .maybeSingle();
 
-  if (zoneError) throw new Error(`Unable to resolve shipping zone: ${zoneError.message}`);
-  if (!zoneData?.zone_name) return null;
+  if (postalError) throw new Error(`Unable to resolve province for postal code: ${postalError.message}`);
 
-  const boxPlan = await resolveShippingBoxPlan(env, String(zoneData.zone_name), totalUnits);
+  let zoneName = postalData?.province ?? null;
+
+  // 2) Fallback: si el código postal no está cargado en postal_codes_ar,
+  //    usamos el esquema anterior por rango (CABA_PBA / RESTO_PAIS) para no romper el checkout.
+  if (!zoneName) {
+    const cp = Number.parseInt(normalizedPostalCode, 10);
+    const { data: zoneData, error: zoneError } = await supabase
+      .from("pricing_shipping_zones")
+      .select("zone_name")
+      .eq("active", true)
+      .lte("postal_code_from", cp)
+      .gte("postal_code_to", cp)
+      .limit(1)
+      .maybeSingle();
+
+    if (zoneError) throw new Error(`Unable to resolve shipping zone: ${zoneError.message}`);
+    zoneName = zoneData?.zone_name ?? null;
+  }
+
+  if (!zoneName) return null;
+
+  const boxPlan = await resolveShippingBoxPlan(env, String(zoneName), totalUnits);
 
   return {
-    zone: String(zoneData.zone_name),
+    zone: String(zoneName),
     priceArs: boxPlan.totalPriceArs,
     boxes: boxPlan.boxes,
     boxCount: boxPlan.boxes.reduce((sum, box) => sum + box.count, 0)
   };
 }
+
 
 export async function getShippingPriceArs(
   env: Env,
@@ -338,6 +371,7 @@ export async function createOrderRecord(
     product_name: string;
     quantity: number;
     units_per_pack: number;
+    units_per_pack_master: number;
     unit_price: number;
   }>,
   totalArs: number,
@@ -347,7 +381,10 @@ export async function createOrderRecord(
   shipping: ShippingInput
 ): Promise<{ id: string }> {
   const supabase = getSupabase(env);
-  const totalUnits = items.reduce((sum, item) => sum + item.quantity * item.units_per_pack, 0);
+  const totalUnits = Math.round(1000 * items.reduce(
+    (sum, item) => sum + (item.quantity * item.units_per_pack) / item.units_per_pack_master,
+    0
+  ));
   const shippingAmount = await getShippingPriceArs(env, shipping, totalUnits);
   const totalAmount = totalArs + shippingAmount;
   const paymentStatusBySource: Record<"mercadopago" | "manual", "pending"> = {
@@ -448,6 +485,7 @@ export class PaymentService {
         product_name: item.product_name,
         quantity: item.quantity,
         units_per_pack: item.units_per_pack,
+        units_per_pack_master: item.units_per_pack_master,
         unit_price: item.unit_price
       })),
       quote.subtotal_ars - quote.shipping_price_ars,
@@ -890,7 +928,7 @@ export class PaymentService {
     const items: PaymentQuoteItem[] = [];
     let subtotalArs = 0;
     let subtotalUsd = 0;
-    let totalUnits = 0;
+    let totalEquivalentPacks = 0;
 
     for (const inputItem of input.items) {
       const { data, error } = await supabase
@@ -926,7 +964,7 @@ export class PaymentService {
 
       const unitsPerPackMaster = Number(product.units_per_pack_master) || 1;
       const presentationQuantity = Number(variant.units_per_pack) || 1;
-      totalUnits += presentationQuantity * inputItem.quantity;
+      totalEquivalentPacks += (presentationQuantity * inputItem.quantity) / unitsPerPackMaster;
       const equivalentPacks = (presentationQuantity * inputItem.quantity) / unitsPerPackMaster;
       const discountFactor = resolveVolumeDiscountFactor(equivalentPacks, discounts);
       const pricing = calculatePriceV2({
@@ -956,12 +994,14 @@ export class PaymentService {
         unit_price: priceArs,
         product_name: product.name,
         units_per_pack: presentationQuantity,
+        units_per_pack_master: unitsPerPackMaster,
         price_usd: priceUsd,
         subtotal_ars: itemSubtotalArs,
         subtotal_usd: itemSubtotalUsd
       });
     }
 
+    const totalUnits = Math.round(1000 * totalEquivalentPacks);
     const shippingArs = await getShippingPriceArs(this.env, input.shipping, totalUnits);
 
     return {
@@ -1013,7 +1053,7 @@ export class PaymentService {
       expiration_date_to: expiration.toISOString(),
       payer,
       items: [
-        ...quote.items.map(({ sku: _sku, product_name: _productName, units_per_pack: _unitsPerPack, price_usd: _priceUsd, subtotal_ars: _subtotalArs, subtotal_usd: _subtotalUsd, ...item }) => item),
+        ...quote.items.map(({ sku: _sku, product_name: _productName, units_per_pack: _unitsPerPack, units_per_pack_master: _unitsPerPackMaster, price_usd: _priceUsd, subtotal_ars: _subtotalArs, subtotal_usd: _subtotalUsd, ...item }) => item),
         ...(quote.shipping_price_ars > 0 ? [{
           id: "shipping",
           title: "Costo de envío",

@@ -88,7 +88,7 @@ export async function handleCreateOrder({ request, env }: { request: Request; en
     const validatedItems = [];
     let totalArs = 0;
     let totalUsd = 0;
-    let totalUnits = 0;
+    let totalEquivalentPacks = 0;
 
     for (const item of items) {
       const { data: variant, error } = await supabase
@@ -131,7 +131,7 @@ export async function handleCreateOrder({ request, env }: { request: Request; en
       const costUsdMaster = Number(product.cost_usd) || 0;
       const unitsPerPackMaster = Number(product.units_per_pack_master) || 1;
       const presentationQuantity = Number(variant.units_per_pack) || 1;
-      totalUnits += presentationQuantity * item.quantity;
+      totalEquivalentPacks += (presentationQuantity * item.quantity) / unitsPerPackMaster;
       const equivalentPacks = (presentationQuantity * item.quantity) / unitsPerPackMaster;
       const discountFactor = resolveVolumeDiscountFactor(equivalentPacks, volumeDiscounts);
       const costUsdMasterWithDiscount = round2(costUsdMaster / discountFactor);
@@ -174,6 +174,7 @@ export async function handleCreateOrder({ request, env }: { request: Request; en
       });
     }
 
+    const totalUnits = Math.round(1000 * totalEquivalentPacks);
     const shippingArs = await getShippingPriceArs(env, shipping, totalUnits);
     totalArs += shippingArs;
 
@@ -186,9 +187,10 @@ export async function handleCreateOrder({ request, env }: { request: Request; en
         variant_id: item.variant_id,
         sku: item.sku,
         product_name: item.product_name,
-        quantity: item.quantity,
-        units_per_pack: item.units_per_pack,
-        unit_price: item.price_ars
+         quantity: item.quantity,
+         units_per_pack: item.units_per_pack,
+         units_per_pack_master: item.product.units_per_pack_master,
+         unit_price: item.price_ars
       })),
       totalArs - shippingArs,
       pricingConfig.exchangeRate,

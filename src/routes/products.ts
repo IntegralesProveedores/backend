@@ -19,7 +19,7 @@ export async function handleProducts({ env, url }: RouteContext) {
       .select(PRODUCT_SUMMARY_SELECT, { count: "exact" })
       .eq("active", true)
       .is("deleted_at", null)
-      .order("name", { ascending: true })
+      .order("volume_cc", { ascending: true })
       .range(offset, offset + limit - 1);
 
     const [pricingConfig, productsResult, taxesResult, discountsResult] = await Promise.all([

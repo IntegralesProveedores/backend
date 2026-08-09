@@ -111,7 +111,7 @@ export async function handleCategoryProducts({ env, params, url }: RouteContext)
     .filter("product_categories.category_id", "in", `(${categoryIds.join(",")})`)
     .eq("active", true)
     .is("deleted_at", null)
-    .order("name", { ascending: true })
+    .order("volume_cc", { ascending: true })
     .range(offset, offset + limit - 1);
 
   const { data: products, error, count } = productsResult;

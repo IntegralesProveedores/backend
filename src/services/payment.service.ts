@@ -53,6 +53,11 @@ export interface ShippingBox {
   unitPriceArs: number;
 }
 
+export interface ProductGroup {
+  product_id: string;
+  units: number;
+}
+
 interface ShippingResolution {
   zone: string;
   priceArs: number;
@@ -79,6 +84,7 @@ interface VolumeDiscountRow {
 }
 
 interface ProductRow {
+  id: string;
   name: string;
   cost_usd: number | string;
   units_per_pack_master: number | string;
@@ -161,6 +167,7 @@ export class PaymentInputError extends Error {
 }
 
 interface PaymentQuoteItem extends MercadoPagoPreferenceItem {
+  product_id: string;
   sku: string;
   product_name: string;
   units_per_pack: number;
@@ -191,105 +198,70 @@ const isPositiveInteger = (value: unknown): value is number => {
 export async function resolveShippingBoxPlan(
   env: Env,
   zoneName: string,
-  totalUnits: number,
+  productGroups: ProductGroup[],
   deliverySpeed = "standard"
 ): Promise<{ boxes: ShippingBox[]; totalPriceArs: number }> {
-  if (totalUnits === 0) return { boxes: [], totalPriceArs: 0 };
+  if (productGroups.length === 0) return { boxes: [], totalPriceArs: 0 };
 
   const supabase = getSupabase(env);
   const { shippingPriceBufferPercentage } = await getPricingConfig(env);
   const bufferFactor = 1 + shippingPriceBufferPercentage / 100;
-  const { data: rates, error } = await supabase
-    .from("pricing_shipping_rates")
-    .select("price_ars, box_model_id, pricing_shipping_box_models!inner(id, name, width_cm, length_cm, height_cm, weight_kg, pricing_shipping_box_assignments!inner(max_quantity))")
-    .eq("zone_name", zoneName)
-    .eq("delivery_speed", deliverySpeed)
-    .eq("active", true)
-    .eq("pricing_shipping_box_models.active", true)
-    .eq("pricing_shipping_box_models.pricing_shipping_box_assignments.active", true);
+  const result = { boxes: [] as ShippingBox[], totalPriceArs: 0 };
+  for (const group of productGroups) {
+    if (group.units <= 0) continue;
+    const { data: assignments, error: assignmentsError } = await supabase
+      .from("pricing_shipping_box_assignments")
+      .select("box_model_id, min_quantity, max_quantity")
+      .eq("product_id", group.product_id)
+      .eq("active", true);
+    if (assignmentsError) throw new Error(`Unable to load shipping box rules: ${assignmentsError.message}`);
+    if (!assignments?.length) throw new Error(`No shipping box rules found for product ${group.product_id}`);
 
-  if (error) throw new Error(`Unable to load shipping boxes and rates: ${error.message}`);
-
-  const capacities = new Map<string, {
-    capacity: number;
-    priceArs: number;
-    name: string;
-    widthCm: number;
-    lengthCm: number;
-    heightCm: number;
-    weightKg: number;
-  }>();
-
-  for (const rate of rates ?? []) {
-    const model = Array.isArray(rate.pricing_shipping_box_models)
-      ? rate.pricing_shipping_box_models[0]
-      : rate.pricing_shipping_box_models;
-    if (!model) continue;
-
-    const assignments = Array.isArray(model.pricing_shipping_box_assignments)
-      ? model.pricing_shipping_box_assignments
-      : [model.pricing_shipping_box_assignments];
-    const capacity = Math.max(...assignments.map((assignment: any) => Number(assignment?.max_quantity)).filter(Number.isFinite));
-    if (!Number.isFinite(capacity) || capacity <= 0) continue;
-
-    const boxModelId = String(rate.box_model_id ?? model.id);
-    const candidate = {
-      capacity,
-      priceArs: Math.round(Number(rate.price_ars) * bufferFactor),
-      name: String(model.name),
-      widthCm: Number(model.width_cm),
-      lengthCm: Number(model.length_cm),
-      heightCm: Number(model.height_cm),
-      weightKg: Number(model.weight_kg)
-    };
-    const previous = capacities.get(boxModelId);
-    if (!previous || candidate.capacity > previous.capacity) capacities.set(boxModelId, candidate);
-  }
-
-  const boxes = Array.from(capacities, ([boxModelId, box]) => ({ boxModelId, ...box }));
-  if (boxes.length === 0) {
-    throw new Error(`No active shipping rates found for zone "${zoneName}" and delivery speed "${deliverySpeed}"`);
-  }
-
-  const dp = Array<number>(totalUnits + 1).fill(Number.POSITIVE_INFINITY);
-  const previous = Array<{ units: number; boxIndex: number } | null>(totalUnits + 1).fill(null);
-  dp[0] = 0;
-  for (let units = 1; units <= totalUnits; units++) {
-    for (let boxIndex = 0; boxIndex < boxes.length; boxIndex++) {
-      const box = boxes[boxIndex];
-      const priorUnits = Math.max(0, units - box.capacity);
-      const candidateCost = dp[priorUnits] + box.priceArs;
-      if (candidateCost < dp[units]) {
-        dp[units] = candidateCost;
-        previous[units] = { units: priorUnits, boxIndex };
-      }
+    const modelIds = [...new Set(assignments.map((a: any) => String(a.box_model_id)))];
+    const [ratesResult, modelsResult] = await Promise.all([
+      supabase.from("pricing_shipping_rates").select("price_ars, box_model_id")
+        .eq("zone_name", zoneName).eq("delivery_speed", deliverySpeed).eq("active", true)
+        .in("box_model_id", modelIds),
+      supabase.from("pricing_shipping_box_models").select("id, name, width_cm, length_cm, height_cm, weight_kg")
+        .eq("active", true).in("id", modelIds)
+    ]);
+    if (ratesResult.error || modelsResult.error) {
+      throw new Error(`Unable to load shipping boxes and rates: ${ratesResult.error?.message ?? modelsResult.error?.message}`);
     }
+    const rates = new Map((ratesResult.data ?? []).map((r: any) => [String(r.box_model_id), Number(r.price_ars)]));
+    const models = new Map((modelsResult.data ?? []).map((m: any) => [String(m.id), m]));
+    const boxes = assignments.flatMap((assignment: any) => {
+      const id = String(assignment.box_model_id);
+      const model = models.get(id);
+      const minQuantity = Number(assignment.min_quantity);
+      const maxQuantity = Number(assignment.max_quantity);
+      const capacity = Number(assignment.max_quantity);
+      const price = rates.get(id);
+      return model && Number.isFinite(minQuantity) && Number.isFinite(capacity) && capacity > 0 && price !== undefined
+        ? [{ boxModelId: id, minQuantity, maxQuantity: capacity, capacity, priceArs: Math.round(price * bufferFactor), name: String(model.name), widthCm: Number(model.width_cm), lengthCm: Number(model.length_cm), heightCm: Number(model.height_cm), weightKg: Number(model.weight_kg) }]
+        : [];
+    });
+    if (!boxes.length) throw new Error(`No active shipping rates found for zone "${zoneName}" and delivery speed "${deliverySpeed}"`);
+    const largestBox = boxes.reduce((largest, box) => box.maxQuantity > largest.maxQuantity ? box : largest);
+    const counts = new Map<string, number>();
+    let remainingUnits = group.units;
+    let totalPrice = 0;
+    while (remainingUnits > 0) {
+      const matchingBox = boxes.find(box => remainingUnits >= box.minQuantity && remainingUnits <= box.maxQuantity);
+      const box = matchingBox ?? (remainingUnits > largestBox.maxQuantity ? largestBox : null);
+      if (!box) throw new Error(`Unable to build a shipping box plan for ${group.units} units`);
+      counts.set(box.boxModelId, (counts.get(box.boxModelId) ?? 0) + 1);
+      totalPrice += box.priceArs;
+      remainingUnits = matchingBox ? 0 : remainingUnits - largestBox.maxQuantity;
+    }
+    for (const box of boxes) if (counts.has(box.boxModelId)) {
+      const existing = result.boxes.find(b => b.boxModelId === box.boxModelId);
+      if (existing) existing.count += counts.get(box.boxModelId)!;
+      else result.boxes.push({ boxModelId: box.boxModelId, boxModelName: box.name, widthCm: box.widthCm, lengthCm: box.lengthCm, heightCm: box.heightCm, weightKg: box.weightKg, count: counts.get(box.boxModelId)!, unitPriceArs: box.priceArs });
+    }
+    result.totalPriceArs += Math.round(totalPrice);
   }
-
-  const counts = new Map<string, number>();
-  for (let units = totalUnits; units > 0;) {
-    const step = previous[units];
-    if (!step) throw new Error(`Unable to build a shipping box plan for ${totalUnits} units`);
-    const box = boxes[step.boxIndex];
-    counts.set(box.boxModelId, (counts.get(box.boxModelId) ?? 0) + 1);
-    units = step.units;
-  }
-
-  return {
-    boxes: boxes
-      .filter(box => counts.has(box.boxModelId))
-      .map(box => ({
-        boxModelId: box.boxModelId,
-        boxModelName: box.name,
-        widthCm: box.widthCm,
-        lengthCm: box.lengthCm,
-        heightCm: box.heightCm,
-        weightKg: box.weightKg,
-        count: counts.get(box.boxModelId)!,
-        unitPriceArs: box.priceArs
-      })),
-    totalPriceArs: Math.round(dp[totalUnits])
-  };
+  return result;
 }
 
 
@@ -303,7 +275,7 @@ function extractPostalCodeDigits(rawPostalCode: string): string | null {
 export async function resolveShippingRate(
   env: Env,
   postalCode: string,
-  totalUnits: number
+  productGroups: ProductGroup[]
 ): Promise<ShippingResolution | null> {
   const supabase = getSupabase(env);
   const normalizedPostalCode = extractPostalCodeDigits(postalCode);
@@ -340,7 +312,7 @@ export async function resolveShippingRate(
 
   if (!zoneName) return null;
 
-  const boxPlan = await resolveShippingBoxPlan(env, String(zoneName), totalUnits);
+  const boxPlan = await resolveShippingBoxPlan(env, String(zoneName), productGroups);
 
   return {
     zone: String(zoneName),
@@ -354,11 +326,11 @@ export async function resolveShippingRate(
 export async function getShippingPriceArs(
   env: Env,
   shipping: ShippingInput,
-  totalUnits: number
+  productGroups: ProductGroup[]
 ): Promise<number> {
   if (shipping.method === "pickup" || shipping.method === "coordinar") return 0;
   if (!shipping.address?.postal_code) return 0;
-  const resolution = await resolveShippingRate(env, shipping.address.postal_code, totalUnits);
+  const resolution = await resolveShippingRate(env, shipping.address.postal_code, productGroups);
   return resolution?.priceArs ?? 0;
 }
 
@@ -367,6 +339,7 @@ export async function createOrderRecord(
   customer: PaymentCustomerInput,
   items: Array<{
     variant_id: string;
+    product_id: string;
     sku: string;
     product_name: string;
     quantity: number;
@@ -381,11 +354,11 @@ export async function createOrderRecord(
   shipping: ShippingInput
 ): Promise<{ id: string }> {
   const supabase = getSupabase(env);
-  const totalUnits = Math.round(1000 * items.reduce(
-    (sum, item) => sum + (item.quantity * item.units_per_pack) / item.units_per_pack_master,
-    0
-  ));
-  const shippingAmount = await getShippingPriceArs(env, shipping, totalUnits);
+  const productGroups = Array.from(items.reduce((groups, item) => {
+    groups.set(item.product_id, (groups.get(item.product_id) ?? 0) + item.quantity * item.units_per_pack);
+    return groups;
+  }, new Map<string, number>()), ([product_id, units]) => ({ product_id, units }));
+  const shippingAmount = await getShippingPriceArs(env, shipping, productGroups);
   const totalAmount = totalArs + shippingAmount;
   const paymentStatusBySource: Record<"mercadopago" | "manual", "pending"> = {
     mercadopago: "pending",
@@ -481,6 +454,7 @@ export class PaymentService {
       input.customer,
       quote.items.map(item => ({
         variant_id: item.id,
+        product_id: item.product_id,
         sku: item.sku,
         product_name: item.product_name,
         quantity: item.quantity,
@@ -941,6 +915,7 @@ export class PaymentService {
           is_active,
           deleted_at,
           products (
+            id,
             name,
             cost_usd,
             units_per_pack_master
@@ -986,6 +961,7 @@ export class PaymentService {
 
       items.push({
         id: variant.id,
+        product_id: String((product as ProductRow).id),
         sku: variant.sku,
         title: product.name,
         description: `SKU ${variant.sku}`,
@@ -1001,8 +977,11 @@ export class PaymentService {
       });
     }
 
-    const totalUnits = Math.round(1000 * totalEquivalentPacks);
-    const shippingArs = await getShippingPriceArs(this.env, input.shipping, totalUnits);
+    const productGroups = Array.from(items.reduce((groups, item) => {
+      groups.set(item.product_id, (groups.get(item.product_id) ?? 0) + item.quantity * item.units_per_pack);
+      return groups;
+    }, new Map<string, number>()), ([product_id, units]) => ({ product_id, units }));
+    const shippingArs = await getShippingPriceArs(this.env, input.shipping, productGroups);
 
     return {
       items,
@@ -1053,7 +1032,7 @@ export class PaymentService {
       expiration_date_to: expiration.toISOString(),
       payer,
       items: [
-        ...quote.items.map(({ sku: _sku, product_name: _productName, units_per_pack: _unitsPerPack, units_per_pack_master: _unitsPerPackMaster, price_usd: _priceUsd, subtotal_ars: _subtotalArs, subtotal_usd: _subtotalUsd, ...item }) => item),
+        ...quote.items.map(({ product_id: _productId, sku: _sku, product_name: _productName, units_per_pack: _unitsPerPack, units_per_pack_master: _unitsPerPackMaster, price_usd: _priceUsd, subtotal_ars: _subtotalArs, subtotal_usd: _subtotalUsd, ...item }) => item),
         ...(quote.shipping_price_ars > 0 ? [{
           id: "shipping",
           title: "Costo de envío",

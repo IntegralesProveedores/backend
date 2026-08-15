@@ -101,6 +101,7 @@ export async function handleCreateOrder({ request, env }: { request: Request; en
           is_active,
           deleted_at,
           products (
+            id,
             name,
             cost_usd,
             units_per_pack_master
@@ -167,6 +168,7 @@ export async function handleCreateOrder({ request, env }: { request: Request; en
         subtotal_ars: subtotalArs,
         subtotal_usd: subtotalUsd,
         product: {
+          id: String(product.id),
           name: productName,
           cost_usd: costUsdMaster,
           units_per_pack_master: unitsPerPackMaster
@@ -174,8 +176,12 @@ export async function handleCreateOrder({ request, env }: { request: Request; en
       });
     }
 
-    const totalUnits = Math.round(1000 * totalEquivalentPacks);
-    const shippingArs = await getShippingPriceArs(env, shipping, totalUnits);
+    const productGroups = Array.from(validatedItems.reduce((groups, item) => {
+      const productId = String(item.product.id);
+      groups.set(productId, (groups.get(productId) ?? 0) + item.quantity * item.units_per_pack);
+      return groups;
+    }, new Map<string, number>()), ([product_id, units]) => ({ product_id, units }));
+    const shippingArs = await getShippingPriceArs(env, shipping, productGroups);
     totalArs += shippingArs;
 
     const orderRef = crypto.randomUUID();
@@ -185,6 +191,7 @@ export async function handleCreateOrder({ request, env }: { request: Request; en
       customer,
       validatedItems.map(item => ({
         variant_id: item.variant_id,
+        product_id: String(item.product.id),
         sku: item.sku,
         product_name: item.product_name,
          quantity: item.quantity,

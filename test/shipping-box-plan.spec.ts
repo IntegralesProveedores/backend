@@ -45,7 +45,7 @@ describe("resolveShippingBoxPlan", () => {
   });
 
   it("usa una Caja Chica para 250 milésimos de bulto equivalente", async () => {
-    const result = await resolveShippingBoxPlan({} as Env, "CABA_PBA", 250);
+    const result = await resolveShippingBoxPlan({} as Env, "CABA_PBA", [{ product_id: "00000000-0000-4000-8000-000000000001", units: 250 }]);
     expect(result).toEqual({
       boxes: [expect.objectContaining({ boxModelId: "small", count: 1, unitPriceArs: 13000 })],
       totalPriceArs: 13000
@@ -53,31 +53,31 @@ describe("resolveShippingBoxPlan", () => {
   });
 
   it("elige la Caja Mediana para 500 milésimos de bulto equivalente", async () => {
-    const result = await resolveShippingBoxPlan({} as Env, "CABA_PBA", 500);
+    const result = await resolveShippingBoxPlan({} as Env, "CABA_PBA", [{ product_id: "00000000-0000-4000-8000-000000000001", units: 500 }]);
     expect(result.totalPriceArs).toBe(19000);
     expect(result.boxes.map(box => [box.boxModelId, box.count])).toEqual([["medium", 1]]);
   });
 
   it("elige una Caja Grande para 1000 milésimos de bulto equivalente", async () => {
-    const result = await resolveShippingBoxPlan({} as Env, "CABA_PBA", 1000);
+    const result = await resolveShippingBoxPlan({} as Env, "CABA_PBA", [{ product_id: "00000000-0000-4000-8000-000000000001", units: 1000 }]);
     expect(result.totalPriceArs).toBe(24000);
     expect(result.boxes.map(box => [box.boxModelId, box.count])).toEqual([["large", 1]]);
   });
 
   it("encuentra la combinación óptima para 1250 unidades", async () => {
-    const result = await resolveShippingBoxPlan({} as Env, "CABA_PBA", 1250);
+    const result = await resolveShippingBoxPlan({} as Env, "CABA_PBA", [{ product_id: "00000000-0000-4000-8000-000000000001", units: 1250 }]);
     expect(result.totalPriceArs).toBe(37000);
     expect(result.boxes.map(box => [box.boxModelId, box.count])).toEqual([["small", 1], ["large", 1]]);
   });
 
   it("devuelve un plan vacío para 0 unidades sin consultar cajas", async () => {
-    const result = await resolveShippingBoxPlan({} as Env, "CABA_PBA", 0);
+    const result = await resolveShippingBoxPlan({} as Env, "CABA_PBA", []);
     expect(result).toEqual({ boxes: [], totalPriceArs: 0 });
     expect(getSupabaseMock).not.toHaveBeenCalled();
   });
 
   it("falla explícitamente cuando la zona no tiene tarifas activas", async () => {
-    await expect(resolveShippingBoxPlan({} as Env, "SIN_TARIFA", 50))
+    await expect(resolveShippingBoxPlan({} as Env, "SIN_TARIFA", [{ product_id: "00000000-0000-4000-8000-000000000001", units: 50 }]))
       .rejects.toThrow('No active shipping rates found for zone "SIN_TARIFA"');
   });
 });

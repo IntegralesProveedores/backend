@@ -49,7 +49,7 @@ router.get("/categories/:slug", handleCategoryBySlug);
 router.get("/categories/:slug/products", handleCategoryProducts);
 router.get("/settings", handleSettings);
 router.get("/postal-code/:postalCode", handlePostalCode);
-router.get("/shipping/quote", handleShippingQuote);
+router.post("/shipping/quote", handleShippingQuote);
 router.get("/sitemap.xml", handleSitemap);
 router.post("/orders", handleCreateOrder);
 router.get("/orders/:id", handleGetOrder);

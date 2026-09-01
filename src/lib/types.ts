@@ -34,6 +34,7 @@ export interface RawProduct {
   detail: string | null;
   active: boolean;
   cost_usd: number;
+  cost_currency?: 'ARS' | 'USD';
   units_per_pack_master: number;
   diameter_cm?: number | null;
   height_cm?: number | null;
@@ -49,6 +50,7 @@ export interface CleanVariant {
   id: string;
   sku: string;
   cost_usd: number;
+  cost_currency?: 'ARS' | 'USD';
   price_usd: number;
   price_ars: number;
   markup_percentage: number;

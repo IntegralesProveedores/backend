@@ -1,6 +1,6 @@
 import { getSupabase } from "./db";
 import { getPricingConfig } from "./settings";
-import { calculatePriceV2, TaxRule } from "../lib/pricing";
+import { calculatePriceV2, calculateOrderCommission, TaxRule } from "../lib/pricing";
 import { resolveVolumeDiscountFactor } from "../lib/products";
 import {
   MercadoPagoPayer,
@@ -35,6 +35,7 @@ export interface ShippingAddressInput {
   floor: string;
   apartment: string;
   country: string;
+  observations?: string;
 }
 
 export interface ShippingInput {
@@ -88,6 +89,7 @@ interface ProductRow {
   name: string;
   cost_usd: number | string;
   units_per_pack_master: number | string;
+  cost_currency?: "ARS" | "USD";
 }
 
 interface VariantRow {
@@ -351,7 +353,10 @@ export async function createOrderRecord(
   exchangeRate: number,
   externalReference: string,
   source: "mercadopago" | "manual",
-  shipping: ShippingInput
+  shipping: ShippingInput,
+  paymentMethod: string,
+  paymentCommissionPercentage: number,
+  paymentCommissionAmount: number
 ): Promise<{ id: string }> {
   const supabase = getSupabase(env);
   const productGroups = Array.from(items.reduce((groups, item) => {
@@ -370,7 +375,10 @@ export async function createOrderRecord(
       customer_email: customer.email,
       subtotal_amount: totalArs,
       shipping_amount: shippingAmount,
-      total_amount: totalAmount,
+      total_amount: totalArs + shippingAmount + paymentCommissionAmount,
+      payment_method: paymentMethod,
+      payment_commission_percentage: paymentCommissionPercentage,
+      payment_commission_amount: paymentCommissionAmount,
       exchange_rate_used: exchangeRate,
       status: "pending",
       payment_status: paymentStatusBySource[source],
@@ -422,6 +430,7 @@ export async function createOrderRecord(
         floor: address?.floor ?? null,
         apartment: address?.apartment ?? null,
         country: address?.country ?? null
+        ,observations: address?.observations ?? null
       })
     ]);
 
@@ -448,6 +457,13 @@ export class PaymentService {
 
     const supabase = getSupabase(this.env);
     const quote = await this.buildQuote(input);
+    const pricingConfig = await getPricingConfig(this.env);
+    const commission = calculateOrderCommission(
+      quote.subtotal_ars - quote.shipping_price_ars,
+      quote.shipping_price_ars,
+      "mercadopago",
+      pricingConfig.paymentCommissionPercentage
+    );
     const externalReference = crypto.randomUUID();
     const createdOrder = await createOrderRecord(
       this.env,
@@ -466,12 +482,15 @@ export class PaymentService {
       quote.exchange_rate,
       externalReference,
       "mercadopago",
-      input.shipping
+      input.shipping,
+      "mercadopago",
+      commission.paymentCommissionPercentage,
+      commission.paymentCommissionAmount
     );
 
     try {
       const preference = await this.mercadoPago.createPreference(
-        this.buildPreference(input, quote, externalReference, createdOrder.id)
+        this.buildPreference(input, quote, externalReference, createdOrder.id, commission.paymentCommissionAmount)
       );
 
       return { init_point: preference.init_point };
@@ -918,7 +937,8 @@ export class PaymentService {
             id,
             name,
             cost_usd,
-            units_per_pack_master
+            units_per_pack_master,
+            cost_currency
           )
         `)
         .eq("id", inputItem.variant_id)
@@ -944,6 +964,7 @@ export class PaymentService {
       const discountFactor = resolveVolumeDiscountFactor(equivalentPacks, discounts);
       const pricing = calculatePriceV2({
         cost_usd_master: round2(Number(product.cost_usd) / discountFactor),
+        cost_currency: product.cost_currency,
         units_per_pack_master: unitsPerPackMaster,
         presentation_quantity: presentationQuantity,
         exchange_rate: pricingConfig.exchangeRate,
@@ -996,7 +1017,8 @@ export class PaymentService {
     input: CreatePaymentInput,
     quote: PaymentQuote,
     externalReference: string,
-    orderId: string
+    orderId: string,
+    paymentCommissionAmount = 0
   ): MercadoPagoPreferenceRequest {
     const now = new Date();
     const expiration = new Date(now.getTime() + 24 * 60 * 60 * 1000);
@@ -1040,6 +1062,14 @@ export class PaymentService {
           quantity: 1,
           currency_id: "ARS" as const,
           unit_price: quote.shipping_price_ars
+        }] : []),
+        ...(paymentCommissionAmount > 0 ? [{
+          id: "payment-commission",
+          title: "Comisión de pago",
+          description: "Mercado Pago",
+          quantity: 1,
+          currency_id: "ARS" as const,
+          unit_price: paymentCommissionAmount
         }] : [])
       ],
       metadata: {
@@ -1099,7 +1129,8 @@ export function parseShippingInput(value: unknown): ShippingInput {
       street_number: String(address.street_number ?? "").trim(),
       floor: String(address.floor ?? "").trim(),
       apartment: String(address.apartment ?? "").trim(),
-      country: String(address.country ?? "").trim()
+      country: String(address.country ?? "").trim(),
+      observations: String(address.observations ?? "").trim()
     }
   };
 }

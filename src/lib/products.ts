@@ -22,7 +22,7 @@ export function resolveVolumeDiscountFactor(
 
 /** Proyección mínima para listados (Summary) - Evita overfetching (B4) */
 export const PRODUCT_SUMMARY_SELECT = `
-  id, name, slug, description, detail, active, cost_usd, units_per_pack_master, diameter_cm, height_cm, volume_cc, created_at,
+  id, name, slug, description, detail, active, cost_usd, cost_currency, units_per_pack_master, diameter_cm, height_cm, volume_cc, created_at,
   product_categories (
     categories (
       id, name, slug
@@ -38,7 +38,7 @@ export const PRODUCT_SUMMARY_SELECT = `
 
 /** Proyección completa para detalle */
 export const PRODUCT_DETAIL_SELECT = `
-  id, name, slug, description, detail, active, cost_usd, units_per_pack_master, diameter_cm, height_cm, volume_cc, created_at, updated_at,
+  id, name, slug, description, detail, active, cost_usd, cost_currency, units_per_pack_master, diameter_cm, height_cm, volume_cc, created_at, updated_at,
   product_categories (
     categories (
       id, name, slug, parent_id
@@ -87,6 +87,7 @@ export function cleanProduct(
 
       const v2Result = calculatePriceV2({
         cost_usd_master: costUsdMasterWithDiscount,
+        cost_currency: product.cost_currency,
         units_per_pack_master,
         presentation_quantity,
         exchange_rate: exchangeRate,
@@ -107,6 +108,7 @@ export function cleanProduct(
       const variant: CleanVariant = {
         id: v.id,
         cost_usd: costUsdMasterWithDiscount,
+        cost_currency: product.cost_currency,
         price_usd: price_usd_val,
         price_ars: price_ars_val,
         markup_percentage: markup_val,

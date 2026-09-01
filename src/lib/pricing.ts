@@ -1,4 +1,5 @@
 export const EMBALAJE_COST = 745.56;
+const round = (val: number) => Math.round((val + Number.EPSILON) * 100) / 100;
 
 export interface TaxRule {
   name: string;
@@ -11,6 +12,7 @@ export interface TaxRule {
 /** Parámetros de entrada para el cálculo de precios V2 */
 export interface PricingInput {
   cost_usd_master: number;
+  cost_currency?: 'ARS' | 'USD';
   units_per_pack_master: number;
   presentation_quantity: number;
   exchange_rate: number;
@@ -25,6 +27,7 @@ export interface PricingOutput {
   costo_presentacion: number;
   costo_total_operativo: number;
   precio_final_ars: number;
+  precio_sin_impuestos_ars: number;
   detalles_tributos: {
     nombre: string;
     monto: number;
@@ -51,14 +54,17 @@ export function calculatePriceV2(input: PricingInput): PricingOutput {
     exchange_rate,
     rentability_percentage,
     taxes = [],
-    embalaje_cost = EMBALAJE_COST
+    embalaje_cost = EMBALAJE_COST,
+    cost_currency = 'USD'
   } = input;
 
   // a & b. Precio bulto maestro en pesos
-  const precio_bulto_ars = cost_usd_master * exchange_rate;
+  const effectiveRate = cost_currency === 'ARS' ? 1 : exchange_rate;
+  const precio_bulto_ars = cost_usd_master * effectiveRate;
 
   // c. Precio unitario base
   const precio_unitario_base = precio_bulto_ars / units_per_pack_master;
+  const precio_sin_impuestos_ars = round(precio_unitario_base * presentation_quantity * (1 + rentability_percentage / 100));
 
   // d. Cálculo de tributos y costo unitario computable
   let costo_unitario_computable = precio_unitario_base;
@@ -90,14 +96,37 @@ export function calculatePriceV2(input: PricingInput): PricingOutput {
 
   // Redondeo final a 2 decimales para precisión interna, 
   // la UI decidirá si redondea a entero.
-  const round = (val: number) => Math.round((val + Number.EPSILON) * 100) / 100;
-
   return {
     precio_unitario_neto: round(precio_unitario_base),
     costo_presentacion: round(costo_presentacion),
     costo_total_operativo: round(costo_total_operativo),
     precio_final_ars: round(precio_final_ars),
+    precio_sin_impuestos_ars,
     detalles_tributos: detalles_tributos.map(t => ({ ...t, monto: round(t.monto) }))
+  };
+}
+
+export interface OrderCommissionResult {
+  paymentCommissionPercentage: number;
+  paymentCommissionAmount: number;
+  totalConComision: number;
+}
+
+export function calculateOrderCommission(
+  subtotalArs: number,
+  shippingArs: number,
+  paymentMethod: 'mercadopago' | 'transferencia',
+  commissionPercentageConfig: number
+): OrderCommissionResult {
+  const base = round(subtotalArs + shippingArs);
+  if (paymentMethod === 'transferencia' || commissionPercentageConfig <= 0) {
+    return { paymentCommissionPercentage: 0, paymentCommissionAmount: 0, totalConComision: base };
+  }
+  const paymentCommissionAmount = round(base * (commissionPercentageConfig / 100));
+  return {
+    paymentCommissionPercentage: commissionPercentageConfig,
+    paymentCommissionAmount,
+    totalConComision: round(base + paymentCommissionAmount)
   };
 }
 

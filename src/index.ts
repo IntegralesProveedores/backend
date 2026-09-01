@@ -9,6 +9,7 @@ import {
   handleCategoryProducts
 } from "./routes/categories";
 import { handleSettings } from "./routes/settings";
+import { handlePaymentTransferInfo } from "./routes/payment-transfer-info";
 import { handleMercadoPagoWebhook } from "./routes/webhooks";
 import { handleCreatePayment } from "./routes/payments";
 import { handlePostalCode } from "./routes/postal-code";
@@ -48,6 +49,7 @@ router.get("/categories", handleCategories);
 router.get("/categories/:slug", handleCategoryBySlug);
 router.get("/categories/:slug/products", handleCategoryProducts);
 router.get("/settings", handleSettings);
+router.get("/payment-transfer-info", handlePaymentTransferInfo);
 router.get("/postal-code/:postalCode", handlePostalCode);
 router.post("/shipping/quote", handleShippingQuote);
 router.get("/sitemap.xml", handleSitemap);

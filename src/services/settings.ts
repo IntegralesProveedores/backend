@@ -34,6 +34,9 @@ async function refreshExchangeRate(env: any): Promise<number> {
     if (error) {
       console.warn("No se pudo persistir el tipo de cambio en la DB mediante RPC:", error.message);
     }
+    await supabase.from("pricing_settings")
+      .update({ value: rate, updated_at: new Date().toISOString() })
+      .eq("key", "usd_exchange_rate");
 
     return rate;
   } catch (e) {
@@ -51,123 +54,40 @@ function refreshExchangeRateBackground(env: any): void {
 export interface PricingConfig {
   exchangeRate: number;
   embalageCost: number;
-  markups: {
-    minorista: number;
-    mayorista: number;
-  };
+  markups: { minorista: number; mayorista: number };
   shippingPriceBufferPercentage: number;
+  paymentCommissionPercentage: number;
 }
 
+const FALLBACK: PricingConfig = {
+  exchangeRate: 1481.94,
+  embalageCost: 745.56,
+  markups: { minorista: 40, mayorista: 30 },
+  shippingPriceBufferPercentage: 40,
+  paymentCommissionPercentage: 6.5
+};
+
 export async function getPricingConfig(env: any): Promise<PricingConfig> {
-  const fallback: PricingConfig = {
-    exchangeRate: 1481.94,
-    embalageCost: 745.56,
-    markups: {
-      minorista: 40,
-      mayorista: 30
-    },
-    shippingPriceBufferPercentage: 40
-  };
-
-  const cacheKey = "pricing_config";
-  const cacheTtlSeconds = 3600;
-  const kv = env?.PRICING_CACHE;
-
-  const readCachedConfig = async (): Promise<PricingConfig | null> => {
-    if (!kv?.get) {
-      return null;
-    }
-
-    try {
-      const cached = await kv.get(cacheKey, "json") as PricingConfig | null;
-      return cached ?? null;
-    } catch (e) {
-      console.error("Error al leer pricing_config desde KV:", e);
-      return null;
-    }
-  };
-
-  const persistCache = async (value: PricingConfig): Promise<void> => {
-    if (!kv?.put) {
-      return;
-    }
-
-    try {
-      await kv.put(cacheKey, JSON.stringify(value), { expirationTtl: cacheTtlSeconds });
-    } catch (e) {
-      console.error("Error al guardar pricing_config en KV:", e);
-    }
-  };
-
   try {
     const supabase = getSupabase(env);
-
     const { data, error } = await supabase
-      .from("settings")
-      .select("usd_exchange_rate, updated_at, embalaje_cost, markup_minorista, markup_mayorista, shipping_price_buffer_percentage")
-      .eq("id", true)
-      .single();
-
-    if (error || !data) {
-      const cachedConfig = await readCachedConfig();
-      if (cachedConfig) {
-        return {
-          exchangeRate: cachedConfig.exchangeRate,
-          embalageCost: cachedConfig.embalageCost,
-          markups: cachedConfig.markups
-        };
-      }
-
-      console.warn("Error al obtener settings de Supabase, usando fallback:", error?.message);
-      return fallback;
-    }
-
-    const exchangeRate = Number(data.usd_exchange_rate) || fallback.exchangeRate;
-    const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
-    const isStale = new Date(data.updated_at) < oneHourAgo;
-
-    if (isStale) {
-      refreshExchangeRateBackground(env);
-    }
-
-    const embalageCost = data.embalaje_cost !== null && data.embalaje_cost !== undefined
-      ? Number(data.embalaje_cost)
-      : fallback.embalageCost;
-
-    const minorista = data.markup_minorista !== null && data.markup_minorista !== undefined
-      ? Number(data.markup_minorista)
-      : fallback.markups.minorista;
-
-    const mayorista = data.markup_mayorista !== null && data.markup_mayorista !== undefined
-      ? Number(data.markup_mayorista)
-      : fallback.markups.mayorista;
-
-    const shippingPriceBufferPercentage = data.shipping_price_buffer_percentage !== null && data.shipping_price_buffer_percentage !== undefined
-      ? Number(data.shipping_price_buffer_percentage)
-      : fallback.shippingPriceBufferPercentage;
-
-    const result: PricingConfig = {
-      exchangeRate,
-      embalageCost,
+      .from("pricing_settings")
+      .select("key, value")
+      .eq("is_active", true);
+    if (error || !data || data.length === 0) return FALLBACK;
+    const map = new Map<string, number>(data.map((r: any) => [r.key, Number(r.value)]));
+    return {
+      exchangeRate: map.get('usd_exchange_rate') ?? FALLBACK.exchangeRate,
+      embalageCost: map.get('embalaje_cost') ?? FALLBACK.embalageCost,
       markups: {
-        minorista,
-        mayorista
+        minorista: map.get('markup_minorista') ?? FALLBACK.markups.minorista,
+        mayorista: map.get('markup_mayorista') ?? FALLBACK.markups.mayorista
       },
-      shippingPriceBufferPercentage
+      shippingPriceBufferPercentage: map.get('shipping_price_buffer_percentage') ?? FALLBACK.shippingPriceBufferPercentage,
+      paymentCommissionPercentage: map.get('payment_commission_percentage') ?? FALLBACK.paymentCommissionPercentage
     };
-    await persistCache(result);
-    return result;
   } catch (e) {
-    const cachedConfig = await readCachedConfig();
-    if (cachedConfig) {
-      return {
-        exchangeRate: cachedConfig.exchangeRate,
-        embalageCost: cachedConfig.embalageCost,
-        markups: cachedConfig.markups
-      };
-    }
-
     console.error("Excepcion al obtener pricing config desde base de datos, usando fallback:", e);
-    return fallback;
+    return FALLBACK;
   }
 }

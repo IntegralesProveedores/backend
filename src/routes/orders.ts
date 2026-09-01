@@ -1,7 +1,7 @@
 import { getSupabase } from "../services/db";
 import { getPricingConfig } from "../services/settings";
 import { errorResponse, jsonResponse } from "../lib/response";
-import { calculatePriceV2, TaxRule } from "../lib/pricing";
+import { calculatePriceV2, calculateOrderCommission, TaxRule } from "../lib/pricing";
 import { resolveVolumeDiscountFactor } from "../lib/products";
 import { createOrderRecord, getShippingPriceArs, parseShippingInput, PaymentInputError, validateShippingInput, ShippingInput } from "../services/payment.service";
 
@@ -22,6 +22,7 @@ type OrderBody = {
   items?: OrderItemInput[];
   customer?: OrderCustomerInput;
   shipping?: unknown;
+  payment_method?: 'mercadopago' | 'transferencia';
 };
 
 const round2 = (value: number): number => Math.round((value + Number.EPSILON) * 100) / 100;
@@ -104,7 +105,8 @@ export async function handleCreateOrder({ request, env }: { request: Request; en
             id,
             name,
             cost_usd,
-            units_per_pack_master
+            units_per_pack_master,
+            cost_currency
           )
         `)
         .eq("id", item.variant_id)
@@ -139,6 +141,7 @@ export async function handleCreateOrder({ request, env }: { request: Request; en
 
       const pricing = calculatePriceV2({
         cost_usd_master: costUsdMasterWithDiscount,
+        cost_currency: product.cost_currency,
         units_per_pack_master: unitsPerPackMaster,
         presentation_quantity: presentationQuantity,
         exchange_rate: pricingConfig.exchangeRate,
@@ -182,7 +185,9 @@ export async function handleCreateOrder({ request, env }: { request: Request; en
       return groups;
     }, new Map<string, number>()), ([product_id, units]) => ({ product_id, units }));
     const shippingArs = await getShippingPriceArs(env, shipping, productGroups);
-    totalArs += shippingArs;
+    const subtotalArs = totalArs;
+    const paymentMethod = body.payment_method === 'transferencia' ? 'transferencia' : 'mercadopago';
+    const commission = calculateOrderCommission(subtotalArs, shippingArs, paymentMethod, pricingConfig.paymentCommissionPercentage);
 
     const orderRef = crypto.randomUUID();
 
@@ -203,16 +208,22 @@ export async function handleCreateOrder({ request, env }: { request: Request; en
       pricingConfig.exchangeRate,
       orderRef,
       "manual",
-      shipping
+      shipping,
+      paymentMethod,
+      commission.paymentCommissionPercentage,
+      commission.paymentCommissionAmount
     );
 
     return jsonResponse({
       items: validatedItems,
-      total_ars: totalArs,
+      total_ars: commission.totalConComision,
       shipping_ars: shippingArs,
       total_usd: round2(totalUsd),
       exchange_rate: pricingConfig.exchangeRate,
       order_ref: orderRef,
+      payment_method: paymentMethod,
+      payment_commission_percentage: commission.paymentCommissionPercentage,
+      payment_commission_amount: commission.paymentCommissionAmount,
       customer: {
         nombre: customer.nombre,
         email: customer.email,
@@ -272,6 +283,7 @@ export async function handleGetOrder({ env, params }: { env: any; params: Record
         street_number: addressResult.data.street_number,
         floor: addressResult.data.floor,
         apartment: addressResult.data.apartment,
+        observations: addressResult.data.observations,
         country: addressResult.data.country
       } : null
     }

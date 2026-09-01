@@ -67,7 +67,8 @@ export async function handleProducts({ env, url }: RouteContext) {
         embalaje_cost: pricingConfig.embalageCost,
         taxes,
         volume_discounts: resolvedVolumeDiscounts,
-        markup: pricingConfig.markups.minorista
+        markup: pricingConfig.markups.minorista,
+        payment_commission_percentage: pricingConfig.paymentCommissionPercentage
       },
       pagination: {
         total: count || 0,
@@ -142,7 +143,8 @@ export async function handleProductBySlug({ env, params, url }: RouteContext) {
         embalaje_cost: pricingConfig.embalageCost,
         taxes,
         volume_discounts: resolvedVolumeDiscounts,
-        markup: pricingConfig.markups.minorista
+        markup: pricingConfig.markups.minorista,
+        payment_commission_percentage: pricingConfig.paymentCommissionPercentage
       }
     });
   } catch (e: any) {

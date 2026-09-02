@@ -3,7 +3,16 @@ import { getPricingConfig } from "../services/settings";
 import { errorResponse, jsonResponse } from "../lib/response";
 import { calculatePriceV2, calculateOrderCommission, TaxRule } from "../lib/pricing";
 import { resolveVolumeDiscountFactor } from "../lib/products";
-import { createOrderRecord, getShippingPriceArs, parseShippingInput, PaymentInputError, validateShippingInput, ShippingInput } from "../services/payment.service";
+import {
+  createOrderRecord,
+  parseShippingInput,
+  PaymentInputError,
+  validateShippingInput,
+  ShippingInput,
+  ShippingBox,
+  resolveShippingRate,
+  sendTransferOrderConfirmationEmail
+} from "../services/payment.service";
 
 type OrderItemInput = {
   variant_id: string;
@@ -90,6 +99,8 @@ export async function handleCreateOrder({ request, env }: { request: Request; en
     let totalArs = 0;
     let totalUsd = 0;
     let totalEquivalentPacks = 0;
+    let volumeDiscountWeightedSum = 0;
+    let volumeDiscountTotalWeight = 0;
 
     for (const item of items) {
       const { data: variant, error } = await supabase
@@ -158,6 +169,25 @@ export async function handleCreateOrder({ request, env }: { request: Request; en
       totalArs += subtotalArs;
       totalUsd += subtotalUsd;
 
+      // Precio sin descuento por volumen, usado únicamente para mostrar el
+      // desglose "Subtotal / Descuento" en el mail de confirmación de
+      // transferencia (ver sendTransferOrderConfirmationEmail).
+      const pricingNoDiscount = calculatePriceV2({
+        cost_usd_master: costUsdMaster,
+        cost_currency: product.cost_currency,
+        units_per_pack_master: unitsPerPackMaster,
+        presentation_quantity: presentationQuantity,
+        exchange_rate: pricingConfig.exchangeRate,
+        rentability_percentage: pricingConfig.markups.minorista,
+        taxes,
+        embalaje_cost: pricingConfig.embalageCost
+      });
+      const priceArsNoDiscount = Math.round(pricingNoDiscount.precio_final_ars);
+      if (discountFactor > 1) {
+        volumeDiscountWeightedSum += (discountFactor - 1) * 100 * subtotalArs;
+        volumeDiscountTotalWeight += subtotalArs;
+      }
+
       validatedItems.push({
         variant_id: variant.id,
         sku: variant.sku,
@@ -170,6 +200,7 @@ export async function handleCreateOrder({ request, env }: { request: Request; en
         price_usd: priceUsd,
         subtotal_ars: subtotalArs,
         subtotal_usd: subtotalUsd,
+        price_ars_no_discount: priceArsNoDiscount,
         product: {
           id: String(product.id),
           name: productName,
@@ -184,7 +215,15 @@ export async function handleCreateOrder({ request, env }: { request: Request; en
       groups.set(productId, (groups.get(productId) ?? 0) + item.quantity * item.units_per_pack);
       return groups;
     }, new Map<string, number>()), ([product_id, units]) => ({ product_id, units }));
-    const shippingArs = await getShippingPriceArs(env, shipping, productGroups);
+
+    let shippingArs = 0;
+    let shippingBoxes: ShippingBox[] = [];
+    if (shipping.method === "delivery" && shipping.address?.postal_code) {
+      const shippingResolution = await resolveShippingRate(env, shipping.address.postal_code, productGroups);
+      shippingArs = shippingResolution?.priceArs ?? 0;
+      shippingBoxes = shippingResolution?.boxes ?? [];
+    }
+
     const subtotalArs = totalArs;
     const paymentMethod = body.payment_method === 'transferencia' ? 'transferencia' : 'mercadopago';
     const commission = calculateOrderCommission(subtotalArs, shippingArs, paymentMethod, pricingConfig.paymentCommissionPercentage);
@@ -213,6 +252,34 @@ export async function handleCreateOrder({ request, env }: { request: Request; en
       commission.paymentCommissionPercentage,
       commission.paymentCommissionAmount
     );
+
+    if (paymentMethod === "transferencia") {
+      const ivaTax = taxes.find(t => t.name.toUpperCase() === "IVA");
+      const vatLabel = ivaTax?.is_computable ? "IVA Incluido" : "IVA no incluido";
+      const volumeDiscountPercentage = volumeDiscountTotalWeight === 0
+        ? 0
+        : Math.round(volumeDiscountWeightedSum / volumeDiscountTotalWeight);
+
+      await sendTransferOrderConfirmationEmail(env, {
+        orderRef,
+        customer,
+        items: validatedItems.map(item => ({
+          product_name: item.product_name,
+          sku: item.sku,
+          quantity: item.quantity,
+          units_per_pack: item.units_per_pack,
+          subtotal_ars: item.subtotal_ars,
+          price_ars_no_discount: item.price_ars_no_discount
+        })),
+        shipping,
+        shippingAmountArs: shippingArs,
+        shippingBoxes,
+        totalArs: commission.totalConComision,
+        volumeDiscountPercentage,
+        vatLabel,
+        paymentCommissionPercentage: commission.paymentCommissionPercentage
+      });
+    }
 
     return jsonResponse({
       items: validatedItems,

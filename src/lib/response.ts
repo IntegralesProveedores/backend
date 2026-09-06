@@ -9,7 +9,8 @@ export function jsonResponse(data: any, status = 200, cacheSeconds = 0) {
     status,
     headers: {
       "Content-Type": "application/json",
-      "Cache-Control": cacheSeconds > 0 ? `public, max-age=${cacheSeconds}` : "no-cache"
+      "Cache-Control": cacheSeconds > 0 ? `public, max-age=${cacheSeconds}` : "no-cache",
+      "X-Content-Type-Options": "nosniff"
     }
   });
 }

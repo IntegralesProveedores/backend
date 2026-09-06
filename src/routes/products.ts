@@ -4,8 +4,12 @@ import { jsonResponse, errorResponse } from "../lib/response";
 import { PRODUCT_SUMMARY_SELECT, PRODUCT_DETAIL_SELECT, cleanProduct, DEFAULT_VOLUME_DISCOUNTS } from "../lib/products";
 import { RouteContext } from "../lib/router";
 import { RawProduct } from "../lib/types";
+import { enforceRateLimit } from "../lib/rate-limit";
 
-export async function handleProducts({ env, url }: RouteContext) {
+export async function handleProducts({ env, url, request }: RouteContext) {
+  const limited = await enforceRateLimit(env, request, "products/list");
+  if (limited) return limited;
+
   try {
     const supabase = getSupabase(env);
 
@@ -62,7 +66,10 @@ export async function handleProducts({ env, url }: RouteContext) {
   }
 }
 
-export async function handleProductBySlug({ env, params, url }: RouteContext) {
+export async function handleProductBySlug({ env, params, url, request }: RouteContext) {
+  const limited = await enforceRateLimit(env, request, "products/get");
+  if (limited) return limited;
+
   try {
     const { slug } = params;
     if (!slug || slug.length > 200 || !/^[a-z0-9-]+$/.test(slug)) {

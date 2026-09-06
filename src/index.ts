@@ -80,7 +80,8 @@ export default {
       return withCors(request, response);
     } catch (e: any) {
       return withCors(request,
-        errorResponse(`Worker Error: ${e.message}`, 500, {
+        errorResponse("Internal server error", 500, {
+          original_message: e.message,
           stack: e.stack,
           host: hostHeader
         })

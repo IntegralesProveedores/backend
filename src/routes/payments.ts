@@ -15,9 +15,11 @@ export async function handleCreatePayment({ request, env }: RouteContext): Promi
     const result = await new PaymentService(env).createCheckout(input);
     return jsonResponse(result);
   } catch (error: unknown) {
+    if (error instanceof PaymentInputError || error instanceof OrderQuoteError) {
+      return errorResponse(error.message, 400);
+    }
     const message = error instanceof Error ? error.message : "Unable to create payment";
     const stack = error instanceof Error ? error.stack : undefined;
-    const status = (error instanceof PaymentInputError || error instanceof OrderQuoteError) ? 400 : 500;
-    return errorResponse(`Payment creation error: ${message}`, status, { stack });
+    return errorResponse("Unable to create payment", 500, { original_message: message, stack });
   }
 }

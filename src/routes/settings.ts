@@ -2,8 +2,12 @@ import { getExchangeRate } from "../services/settings";
 import { jsonResponse, errorResponse } from "../lib/response";
 import { getSupabase } from "../services/db";
 import { RouteContext } from "../lib/router";
+import { enforceRateLimit } from "../lib/rate-limit";
 
-export async function handleSettings({ env }: RouteContext) {
+export async function handleSettings({ env, request }: RouteContext) {
+  const limited = await enforceRateLimit(env, request, "settings");
+  if (limited) return limited;
+
   try {
     const rate = await getExchangeRate(env);
     
@@ -32,6 +36,6 @@ export async function handleSettings({ env }: RouteContext) {
       }, 200, 0);
     }
   } catch (e: any) {
-    return errorResponse(`Settings Handler Error: ${e.message}`, 500);
+    return errorResponse("Unable to load settings", 500, { original_message: e.message, stack: e.stack });
   }
 }

@@ -7,6 +7,10 @@
 //           con persistencia, email y checkout de MP.
 // ─────────────────────────────────────────────────────────────
 
+/** Tope de ítems por orden: evita que un solo request dispare una cantidad
+ *  arbitraria de consultas secuenciales a Supabase en buildOrderQuote. */
+export const MAX_ORDER_ITEMS = 50;
+
 export class PaymentInputError extends Error {
   constructor(message: string) {
     super(message);

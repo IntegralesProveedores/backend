@@ -31,6 +31,6 @@ export async function handleShippingQuote({ env, request }: RouteContext) {
       boxes: resolution.boxes
     });
   } catch (e: any) {
-    return errorResponse(`Shipping quote Handler Error: ${e.message}`, 500, { stack: e.stack });
+    return errorResponse("Unable to quote shipping", 500, { original_message: e.message, stack: e.stack });
   }
 }

@@ -1,8 +1,12 @@
 import { getSupabase } from "../services/db";
 import { jsonResponse, errorResponse } from "../lib/response";
 import { RouteContext } from "../lib/router";
+import { enforceRateLimit } from "../lib/rate-limit";
 
-export async function handlePostalCode({ env, params }: RouteContext) {
+export async function handlePostalCode({ env, params, request }: RouteContext) {
+  const limited = await enforceRateLimit(env, request, "postal-code");
+  if (limited) return limited;
+
   const postalCode = params.postalCode;
 
   if (!/^\d{4}$/.test(postalCode)) return errorResponse("Invalid postal code format", 400);

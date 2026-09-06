@@ -54,7 +54,7 @@ export class Router {
           console.error(`Router error [${method} ${path}]:`, e);
           const message = e instanceof Error ? e.message : String(e);
           const stack = e instanceof Error ? e.stack : undefined;
-          return errorResponse(`Handler Error: ${message}`, 500, { stack });
+          return errorResponse("Internal server error", 500, { original_message: message, stack });
         }
       }
     }

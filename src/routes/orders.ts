@@ -11,6 +11,7 @@ import {
   ShippingInput
 } from "../lib/payment-input.validation";
 import { buildOrderQuote, OrderQuoteError } from "../services/order-quote.service";
+import { MAX_ORDER_ITEMS } from "../lib/payment-input.validation";
 import { sendTransferOrderConfirmationEmail } from "../services/email/order-confirmation-templates";
 import { enforceRateLimit } from "../lib/rate-limit";
 
@@ -56,8 +57,8 @@ export async function handleCreateOrder({ request, env }: { request: Request; en
       throw error;
     }
 
-    if (!Array.isArray(items) || items.length === 0) {
-      return errorResponse("items must be a non-empty array", 400);
+    if (!Array.isArray(items) || items.length === 0 || items.length > MAX_ORDER_ITEMS) {
+      return errorResponse(`items must contain between 1 and ${MAX_ORDER_ITEMS} entries`, 400);
     }
 
     if (!customer || !isValidEmail(customer.email)) {
@@ -180,7 +181,7 @@ export async function handleCreateOrder({ request, env }: { request: Request; en
       }
     });
   } catch (e: any) {
-    return errorResponse(`handleCreateOrder Error: ${e.message}`, 500, { stack: e.stack });
+    return errorResponse("Unable to create order", 500, { original_message: e.message, stack: e.stack });
   }
 }
 
@@ -192,7 +193,10 @@ export async function handleCreateOrder({ request, env }: { request: Request; en
  * cliente. Ese detalle completo debe consultarse desde un canal
  * autenticado si se necesita en el futuro.
  */
-export async function handleGetOrder({ env, params }: { env: any; params: Record<string, string> }) {
+export async function handleGetOrder({ env, params, request }: { env: any; params: Record<string, string>; request: Request }) {
+  const limited = await enforceRateLimit(env, request, "orders/get");
+  if (limited) return limited;
+
   const orderId = params.id;
   const supabase = getSupabase(env);
   const [orderResult, itemsResult] = await Promise.all([

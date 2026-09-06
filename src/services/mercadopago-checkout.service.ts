@@ -14,7 +14,8 @@ import {
   isValidEmail,
   isPositiveInteger,
   validateCustomerInput,
-  validateShippingInput
+  validateShippingInput,
+  MAX_ORDER_ITEMS
 } from "../lib/payment-input.validation";
 import { createOrderRecord } from "./orders.repository";
 import { sendMercadoPagoOrderConfirmationEmail } from "./email/order-confirmation-templates";
@@ -256,8 +257,8 @@ export class PaymentService {
   }
 
   private validateInput(input: CreatePaymentInput): void {
-    if (!input || !Array.isArray(input.items) || input.items.length === 0) {
-      throw new PaymentInputError("items must be a non-empty array");
+    if (!input || !Array.isArray(input.items) || input.items.length === 0 || input.items.length > MAX_ORDER_ITEMS) {
+      throw new PaymentInputError(`items must contain between 1 and ${MAX_ORDER_ITEMS} entries`);
     }
 
     if (!input.customer || !isValidEmail(input.customer.email)) {

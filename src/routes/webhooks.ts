@@ -108,6 +108,6 @@ export async function handleMercadoPagoWebhook({ request, env, url }: RouteConte
       stack,
       duration_ms: Date.now() - startedAt
     }));
-    return errorResponse(`Mercado Pago webhook error: ${message}`, 500, { stack });
+    return errorResponse("Unable to process Mercado Pago webhook", 500, { original_message: message, stack });
   }
 }

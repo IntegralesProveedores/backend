@@ -3,6 +3,7 @@ import { getPricingConfig } from "../services/settings";
 import { jsonResponse, errorResponse } from "../lib/response";
 import { PRODUCT_SUMMARY_SELECT, cleanProduct } from "../lib/products";
 import { RouteContext } from "../lib/router";
+import { enforceRateLimit } from "../lib/rate-limit";
 
 function cleanCategory(category: any) {
   return {
@@ -35,7 +36,10 @@ function buildCategoryTree(categories: any[]): any[] {
   return roots;
 }
 
-export async function handleCategories({ env, url }: RouteContext) {
+export async function handleCategories({ env, url, request }: RouteContext) {
+  const limited = await enforceRateLimit(env, request, "categories/list");
+  if (limited) return limited;
+
   const supabase = getSupabase(env);
   const asTree = url.searchParams.get("tree") === "1";
 
@@ -53,7 +57,10 @@ export async function handleCategories({ env, url }: RouteContext) {
   return jsonResponse(asTree ? buildCategoryTree(cleaned) : cleaned, 200, 60);
 }
 
-export async function handleCategoryBySlug({ env, params }: RouteContext) {
+export async function handleCategoryBySlug({ env, params, request }: RouteContext) {
+  const limited = await enforceRateLimit(env, request, "categories/get");
+  if (limited) return limited;
+
   const supabase = getSupabase(env);
   const { slug } = params;
 
@@ -79,7 +86,10 @@ export async function handleCategoryBySlug({ env, params }: RouteContext) {
   });
 }
 
-export async function handleCategoryProducts({ env, params, url }: RouteContext) {
+export async function handleCategoryProducts({ env, params, url, request }: RouteContext) {
+  const limited = await enforceRateLimit(env, request, "categories/products");
+  if (limited) return limited;
+
   const supabase = getSupabase(env);
   const { slug } = params;
 
@@ -108,7 +118,7 @@ export async function handleCategoryProducts({ env, params, url }: RouteContext)
   let productsResult = await supabase
     .from("products")
     .select(PRODUCT_SUMMARY_SELECT, { count: "exact" })
-    .filter("product_categories.category_id", "in", `(${categoryIds.join(",")})`)
+    .in("product_categories.category_id", categoryIds)
     .eq("active", true)
     .is("deleted_at", null)
     .order("volume_cc", { ascending: true })

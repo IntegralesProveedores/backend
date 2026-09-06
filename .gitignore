@@ -171,6 +171,15 @@ dist
 cloudflared.exe
 *.exe
 
+# Certificados y credenciales que nunca deberían versionarse
+
+*.pem
+*.key
+*.p12
+*.pfx
+credentials.json
+service-account*.json
+
 # Listados generados localmente (export de árbol de archivos para IA/debug)
 
 listado_completo.txt

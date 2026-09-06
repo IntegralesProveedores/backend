@@ -1,6 +1,6 @@
 import { RouteContext } from "../lib/router";
 import { errorResponse, jsonResponse } from "../lib/response";
-import { PaymentService } from "../services/payment.service";
+import { PaymentService } from "../services/mercadopago-checkout.service";
 
 function normalizePaymentId(value: unknown): string | null {
   if (typeof value === "string" && value.trim()) return value.trim();

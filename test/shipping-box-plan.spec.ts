@@ -1,41 +1,71 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { resolveShippingBoxPlan } from "../src/services/payment.service";
+import { resolveShippingBoxPlan } from "../src/services/shipping.service";
 import { getSupabase } from "../src/services/db";
 
 vi.mock("../src/services/db", () => ({ getSupabase: vi.fn() }));
 
 const getSupabaseMock = vi.mocked(getSupabase);
 
-const activeRates = (zoneName: string) => ["CABA_PBA", "RESTO_PAIS"].includes(zoneName)
+const BOX_ASSIGNMENTS = [
+  { box_model_id: "small", min_quantity: 1, max_quantity: 333 },
+  { box_model_id: "medium", min_quantity: 334, max_quantity: 666 },
+  { box_model_id: "large", min_quantity: 667, max_quantity: 1000 }
+];
+
+const BOX_MODELS = [
+  { id: "small", name: "Caja Chica", width_cm: 20, length_cm: 20, height_cm: 20, weight_kg: 1 },
+  { id: "medium", name: "Caja Mediana", width_cm: 30, length_cm: 25, height_cm: 30, weight_kg: 2 },
+  { id: "large", name: "Caja Grande", width_cm: 40, length_cm: 30, height_cm: 60, weight_kg: 4 }
+];
+
+const ratesForZone = (zoneName: string) => ["CABA_PBA", "RESTO_PAIS"].includes(zoneName)
   ? [
-      { box_model_id: "small", price_ars: zoneName === "CABA_PBA" ? 13000 : 17000, pricing_shipping_box_models: {
-        id: "small", name: "Caja Chica", width_cm: 20, length_cm: 20, height_cm: 20, weight_kg: 1,
-        pricing_shipping_box_assignments: [{ max_quantity: 333 }]
-      }},
-      { box_model_id: "medium", price_ars: zoneName === "CABA_PBA" ? 19000 : 31000, pricing_shipping_box_models: {
-        id: "medium", name: "Caja Mediana", width_cm: 30, length_cm: 25, height_cm: 30, weight_kg: 2,
-        pricing_shipping_box_assignments: [{ max_quantity: 666 }]
-      }},
-      { box_model_id: "large", price_ars: zoneName === "CABA_PBA" ? 24000 : 55000, pricing_shipping_box_models: {
-        id: "large", name: "Caja Grande", width_cm: 40, length_cm: 30, height_cm: 60, weight_kg: 4,
-        pricing_shipping_box_assignments: [{ max_quantity: 1000 }]
-      }}
+      { box_model_id: "small", price_ars: zoneName === "CABA_PBA" ? 13000 : 17000 },
+      { box_model_id: "medium", price_ars: zoneName === "CABA_PBA" ? 19000 : 31000 },
+      { box_model_id: "large", price_ars: zoneName === "CABA_PBA" ? 24000 : 55000 }
     ]
   : [];
 
-function mockSupabase() {
-  getSupabaseMock.mockImplementation(() => {
-    const query: any = {
-      select: vi.fn(() => query),
-      eq: vi.fn(() => query),
-      then: (resolve: (value: unknown) => unknown) => Promise.resolve({ data: activeRates(query.zoneName), error: null }).then(resolve)
-    };
-    query.eq.mockImplementation((field: string, value: unknown) => {
-      if (field === "zone_name") query.zoneName = value;
+/**
+ * resolveShippingBoxPlan hace varias queries independientes: primero
+ * getPricingConfig (tabla pricing_settings) para resolver el buffer de
+ * envío, y por cada grupo de producto: pricing_shipping_box_assignments,
+ * y luego -en paralelo vía Promise.all- pricing_shipping_rates y
+ * pricing_shipping_box_models. Cada .from(table) debe devolver su propio
+ * query builder aislado -no uno compartido- para no pisar el estado de
+ * las llamadas concurrentes. El buffer se fija en 0% para poder afirmar
+ * sobre los mismos price_ars "planos" que devuelven las tarifas mockeadas.
+ */
+function makeQuery(table: string) {
+  const filters: Record<string, unknown> = {};
+  const query: any = {
+    select: vi.fn(() => query),
+    eq: vi.fn((field: string, value: unknown) => {
+      filters[field] = value;
       return query;
-    });
-    return { from: vi.fn(() => query) } as any;
-  });
+    }),
+    in: vi.fn(() => query),
+    then: (resolve: (value: unknown) => unknown, reject?: (reason: unknown) => unknown) => {
+      let data: unknown[] = [];
+      if (table === "pricing_settings") {
+        data = [{ key: "shipping_price_buffer_percentage", value: 0 }];
+      } else if (table === "pricing_shipping_box_assignments") {
+        data = BOX_ASSIGNMENTS;
+      } else if (table === "pricing_shipping_rates") {
+        data = ratesForZone(String(filters["zone_name"] ?? ""));
+      } else if (table === "pricing_shipping_box_models") {
+        data = BOX_MODELS;
+      }
+      return Promise.resolve({ data, error: null }).then(resolve, reject);
+    }
+  };
+  return query;
+}
+
+function mockSupabase() {
+  getSupabaseMock.mockImplementation(() => ({
+    from: vi.fn((table: string) => makeQuery(table))
+  }) as any);
 }
 
 describe("resolveShippingBoxPlan", () => {

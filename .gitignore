@@ -170,3 +170,7 @@ dist
 
 cloudflared.exe
 *.exe
+
+# Listados generados localmente (export de árbol de archivos para IA/debug)
+
+listado_completo.txt

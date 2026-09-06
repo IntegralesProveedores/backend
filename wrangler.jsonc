@@ -28,5 +28,15 @@
 			"binding": "PRICING_CACHE",
 			"id": "4605ee2ecc9a4b3c81dc8a713167d1b4"
 		}
+	],
+	"ratelimits": [
+		{
+			"name": "RATE_LIMITER",
+			"namespace_id": "1001",
+			"simple": {
+				"limit": 30,
+				"period": 60
+			}
+		}
 	]
 }

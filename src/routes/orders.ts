@@ -1,18 +1,18 @@
 import { getSupabase } from "../services/db";
 import { getPricingConfig } from "../services/settings";
 import { errorResponse, jsonResponse } from "../lib/response";
-import { calculatePriceV2, calculateOrderCommission, TaxRule } from "../lib/pricing";
-import { resolveVolumeDiscountFactor } from "../lib/products";
+import { calculateOrderCommission } from "../lib/pricing";
+import { createOrderRecord } from "../services/orders.repository";
 import {
-  createOrderRecord,
   parseShippingInput,
   PaymentInputError,
   validateShippingInput,
-  ShippingInput,
-  ShippingBox,
-  resolveShippingRate,
-  sendTransferOrderConfirmationEmail
-} from "../services/payment.service";
+  validateCustomerInput,
+  ShippingInput
+} from "../lib/payment-input.validation";
+import { buildOrderQuote, OrderQuoteError } from "../services/order-quote.service";
+import { sendTransferOrderConfirmationEmail } from "../services/email/order-confirmation-templates";
+import { enforceRateLimit } from "../lib/rate-limit";
 
 type OrderItemInput = {
   variant_id: string;
@@ -34,13 +34,14 @@ type OrderBody = {
   payment_method?: 'mercadopago' | 'transferencia';
 };
 
-const round2 = (value: number): number => Math.round((value + Number.EPSILON) * 100) / 100;
-
 const isValidEmail = (value: unknown): value is string => {
   return typeof value === "string" && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
 };
 
 export async function handleCreateOrder({ request, env }: { request: Request; env: any }) {
+  const limited = await enforceRateLimit(env, request, "orders");
+  if (limited) return limited;
+
   try {
     const body = await request.json() as OrderBody;
     const items = body?.items;
@@ -62,6 +63,12 @@ export async function handleCreateOrder({ request, env }: { request: Request; en
     if (!customer || !isValidEmail(customer.email)) {
       return errorResponse("customer.email is invalid", 400);
     }
+    try {
+      validateCustomerInput(customer);
+    } catch (error) {
+      if (error instanceof PaymentInputError) return errorResponse(error.message, 400);
+      throw error;
+    }
 
     for (const [index, item] of items.entries()) {
       if (!item || typeof item.variant_id !== "string" || !Number.isInteger(item.quantity) || item.quantity <= 0) {
@@ -69,182 +76,36 @@ export async function handleCreateOrder({ request, env }: { request: Request; en
       }
     }
 
-    const supabase = getSupabase(env);
     const pricingConfig = await getPricingConfig(env);
 
-    const [taxesResult, discountsResult] = await Promise.all([
-      supabase
-        .from("pricing_taxes")
-        .select("name, percentage, is_computable, is_active")
-        .eq("is_active", true),
-      supabase
-        .from("pricing_volume_discounts")
-        .select("min_quantity, factor")
-        .order("min_quantity", { ascending: false })
-    ]);
-
-    const taxes = (taxesResult.data ?? []).map((t: any): TaxRule => ({
-      name: t.name,
-      percentage: Number(t.percentage),
-      is_computable: t.is_computable,
-      is_active: t.is_active
-    }));
-
-    const volumeDiscounts = (discountsResult.data ?? []).map((d: any) => ({
-      min: Number(d.min_quantity),
-      factor: Number(d.factor)
-    }));
-
-    const validatedItems = [];
-    let totalArs = 0;
-    let totalUsd = 0;
-    let totalEquivalentPacks = 0;
-    let volumeDiscountWeightedSum = 0;
-    let volumeDiscountTotalWeight = 0;
-
-    for (const item of items) {
-      const { data: variant, error } = await supabase
-        .from("product_variants")
-        .select(`
-          id,
-          sku,
-          stock,
-          units_per_pack,
-          is_active,
-          deleted_at,
-          products (
-            id,
-            name,
-            cost_usd,
-            units_per_pack_master,
-            cost_currency
-          )
-        `)
-        .eq("id", item.variant_id)
-        .single();
-
-      if (error || !variant) {
-        return errorResponse(`Variant not found: ${item.variant_id}`, 400);
-      }
-
-      if (!variant.is_active || variant.deleted_at !== null) {
-        return errorResponse(`Variant not available: ${variant.sku || item.variant_id}`, 400);
-      }
-
-      const stockUnits = Number(variant.stock) || 0;
-      if (stockUnits < item.quantity) {
-        return errorResponse(`Insufficient stock for variant: ${variant.sku || item.variant_id}`, 400);
-      }
-
-      const product = Array.isArray(variant.products) ? variant.products[0] : variant.products;
-      if (!product) {
-        return errorResponse(`Product not found for variant: ${variant.sku || item.variant_id}`, 400);
-      }
-
-      const productName = product.name || variant.sku;
-      const costUsdMaster = Number(product.cost_usd) || 0;
-      const unitsPerPackMaster = Number(product.units_per_pack_master) || 1;
-      const presentationQuantity = Number(variant.units_per_pack) || 1;
-      totalEquivalentPacks += (presentationQuantity * item.quantity) / unitsPerPackMaster;
-      const equivalentPacks = (presentationQuantity * item.quantity) / unitsPerPackMaster;
-      const discountFactor = resolveVolumeDiscountFactor(equivalentPacks, volumeDiscounts);
-      const costUsdMasterWithDiscount = round2(costUsdMaster / discountFactor);
-
-      const pricing = calculatePriceV2({
-        cost_usd_master: costUsdMasterWithDiscount,
-        cost_currency: product.cost_currency,
-        units_per_pack_master: unitsPerPackMaster,
-        presentation_quantity: presentationQuantity,
-        exchange_rate: pricingConfig.exchangeRate,
-        rentability_percentage: pricingConfig.markups.minorista,
-        taxes,
-        embalaje_cost: pricingConfig.embalageCost
-      });
-
-      const priceArs = Math.round(pricing.precio_final_ars);
-      const priceUsd = round2(priceArs / pricingConfig.exchangeRate);
-      const subtotalArs = priceArs * item.quantity;
-      const subtotalUsd = round2(priceUsd * item.quantity);
-
-      totalArs += subtotalArs;
-      totalUsd += subtotalUsd;
-
-      // Precio sin descuento por volumen, usado únicamente para mostrar el
-      // desglose "Subtotal / Descuento" en el mail de confirmación de
-      // transferencia (ver sendTransferOrderConfirmationEmail).
-      const pricingNoDiscount = calculatePriceV2({
-        cost_usd_master: costUsdMaster,
-        cost_currency: product.cost_currency,
-        units_per_pack_master: unitsPerPackMaster,
-        presentation_quantity: presentationQuantity,
-        exchange_rate: pricingConfig.exchangeRate,
-        rentability_percentage: pricingConfig.markups.minorista,
-        taxes,
-        embalaje_cost: pricingConfig.embalageCost
-      });
-      const priceArsNoDiscount = Math.round(pricingNoDiscount.precio_final_ars);
-      if (discountFactor > 1) {
-        volumeDiscountWeightedSum += (discountFactor - 1) * 100 * subtotalArs;
-        volumeDiscountTotalWeight += subtotalArs;
-      }
-
-      validatedItems.push({
-        variant_id: variant.id,
-        sku: variant.sku,
-        product_name: productName,
-        quantity: item.quantity,
-        units_per_pack: presentationQuantity,
-        stock: stockUnits,
-        cost_usd_master: costUsdMasterWithDiscount,
-        price_ars: priceArs,
-        price_usd: priceUsd,
-        subtotal_ars: subtotalArs,
-        subtotal_usd: subtotalUsd,
-        price_ars_no_discount: priceArsNoDiscount,
-        product: {
-          id: String(product.id),
-          name: productName,
-          cost_usd: costUsdMaster,
-          units_per_pack_master: unitsPerPackMaster
-        }
-      });
+    let quote;
+    try {
+      quote = await buildOrderQuote(env, items, shipping);
+    } catch (error) {
+      if (error instanceof OrderQuoteError) return errorResponse(error.message, 400);
+      throw error;
     }
 
-    const productGroups = Array.from(validatedItems.reduce((groups, item) => {
-      const productId = String(item.product.id);
-      groups.set(productId, (groups.get(productId) ?? 0) + item.quantity * item.units_per_pack);
-      return groups;
-    }, new Map<string, number>()), ([product_id, units]) => ({ product_id, units }));
-
-    let shippingArs = 0;
-    let shippingBoxes: ShippingBox[] = [];
-    if (shipping.method === "delivery" && shipping.address?.postal_code) {
-      const shippingResolution = await resolveShippingRate(env, shipping.address.postal_code, productGroups);
-      shippingArs = shippingResolution?.priceArs ?? 0;
-      shippingBoxes = shippingResolution?.boxes ?? [];
-    }
-
-    const subtotalArs = totalArs;
     const paymentMethod = body.payment_method === 'transferencia' ? 'transferencia' : 'mercadopago';
-    const commission = calculateOrderCommission(subtotalArs, shippingArs, paymentMethod, pricingConfig.paymentCommissionPercentage);
+    const commission = calculateOrderCommission(quote.subtotalArs, quote.shippingArs, paymentMethod, pricingConfig.paymentCommissionPercentage);
 
     const orderRef = crypto.randomUUID();
 
     await createOrderRecord(
       env,
       customer,
-      validatedItems.map(item => ({
+      quote.items.map(item => ({
         variant_id: item.variant_id,
-        product_id: String(item.product.id),
+        product_id: item.product_id,
         sku: item.sku,
         product_name: item.product_name,
-         quantity: item.quantity,
-         units_per_pack: item.units_per_pack,
-         units_per_pack_master: item.product.units_per_pack_master,
-         unit_price: item.price_ars
+        quantity: item.quantity,
+        units_per_pack: item.units_per_pack,
+        units_per_pack_master: item.units_per_pack_master,
+        unit_price: item.price_ars
       })),
-      totalArs - shippingArs,
-      pricingConfig.exchangeRate,
+      quote.subtotalArs,
+      quote.exchangeRate,
       orderRef,
       "manual",
       shipping,
@@ -254,16 +115,16 @@ export async function handleCreateOrder({ request, env }: { request: Request; en
     );
 
     if (paymentMethod === "transferencia") {
-      const ivaTax = taxes.find(t => t.name.toUpperCase() === "IVA");
+      const ivaTax = quote.taxes.find(t => t.name.toUpperCase() === "IVA");
       const vatLabel = ivaTax?.is_computable ? "IVA Incluido" : "IVA no incluido";
-      const volumeDiscountPercentage = volumeDiscountTotalWeight === 0
+      const volumeDiscountPercentage = quote.volumeDiscountTotalWeight === 0
         ? 0
-        : Math.round(volumeDiscountWeightedSum / volumeDiscountTotalWeight);
+        : Math.round(quote.volumeDiscountWeightedSum / quote.volumeDiscountTotalWeight);
 
       await sendTransferOrderConfirmationEmail(env, {
         orderRef,
         customer,
-        items: validatedItems.map(item => ({
+        items: quote.items.map(item => ({
           product_name: item.product_name,
           sku: item.sku,
           quantity: item.quantity,
@@ -272,8 +133,8 @@ export async function handleCreateOrder({ request, env }: { request: Request; en
           price_ars_no_discount: item.price_ars_no_discount
         })),
         shipping,
-        shippingAmountArs: shippingArs,
-        shippingBoxes,
+        shippingAmountArs: quote.shippingArs,
+        shippingBoxes: quote.shippingBoxes,
         totalArs: commission.totalConComision,
         volumeDiscountPercentage,
         vatLabel,
@@ -282,11 +143,30 @@ export async function handleCreateOrder({ request, env }: { request: Request; en
     }
 
     return jsonResponse({
-      items: validatedItems,
+      items: quote.items.map(item => ({
+        variant_id: item.variant_id,
+        sku: item.sku,
+        product_name: item.product_name,
+        quantity: item.quantity,
+        units_per_pack: item.units_per_pack,
+        stock: item.stock,
+        cost_usd_master: item.cost_usd_master,
+        price_ars: item.price_ars,
+        price_usd: item.price_usd,
+        subtotal_ars: item.subtotal_ars,
+        subtotal_usd: item.subtotal_usd,
+        price_ars_no_discount: item.price_ars_no_discount,
+        product: {
+          id: item.product_id,
+          name: item.product_name,
+          cost_usd: item.cost_usd_master_original,
+          units_per_pack_master: item.units_per_pack_master
+        }
+      })),
       total_ars: commission.totalConComision,
-      shipping_ars: shippingArs,
-      total_usd: round2(totalUsd),
-      exchange_rate: pricingConfig.exchangeRate,
+      shipping_ars: quote.shippingArs,
+      total_usd: quote.subtotalUsd,
+      exchange_rate: quote.exchangeRate,
       order_ref: orderRef,
       payment_method: paymentMethod,
       payment_commission_percentage: commission.paymentCommissionPercentage,
@@ -304,26 +184,41 @@ export async function handleCreateOrder({ request, env }: { request: Request; en
   }
 }
 
-/** Devuelve la orden agregada para el futuro detalle de /orden/:id. */
+/**
+ * Devuelve el estado agregado de una orden para el futuro detalle de
+ * /orden/:id. Este endpoint no exige autenticación (se accede solo con el
+ * UUID de la orden), así que la respuesta se limita deliberadamente a
+ * datos no sensibles: no incluye nombre, CUIT, teléfono ni dirección del
+ * cliente. Ese detalle completo debe consultarse desde un canal
+ * autenticado si se necesita en el futuro.
+ */
 export async function handleGetOrder({ env, params }: { env: any; params: Record<string, string> }) {
   const orderId = params.id;
   const supabase = getSupabase(env);
-  const [orderResult, itemsResult, customerResult, addressResult] = await Promise.all([
-    supabase.from("orders").select("*").eq("id", orderId).single(),
-    supabase.from("order_items").select("*").eq("order_id", orderId),
-    supabase.from("order_customers").select("*").eq("order_id", orderId).maybeSingle(),
-    supabase.from("order_addresses").select("*").eq("order_id", orderId).maybeSingle()
+  const [orderResult, itemsResult] = await Promise.all([
+    supabase
+      .from("orders")
+      .select("status, payment_status, shipping_status, subtotal_amount, shipping_amount, total_amount, payment_commission_percentage, payment_commission_amount, external_reference, created_at")
+      .eq("id", orderId)
+      .single(),
+    supabase.from("order_items").select("*").eq("order_id", orderId)
   ]);
 
   if (orderResult.error || !orderResult.data) {
     return errorResponse("Order not found", 404);
   }
-  if (itemsResult.error || customerResult.error || addressResult.error) {
+  if (itemsResult.error) {
     return errorResponse("Unable to load order details", 500);
   }
 
+  const order = orderResult.data as any;
+
   return jsonResponse({
-    order: orderResult.data,
+    order_ref: order.external_reference,
+    status: order.status,
+    payment_status: order.payment_status,
+    shipping_status: order.shipping_status,
+    created_at: order.created_at,
     items: (itemsResult.data ?? []).map((item: any) => ({
       id: item.id,
       variant_id: item.product_variant_id,
@@ -331,28 +226,12 @@ export async function handleGetOrder({ env, params }: { env: any; params: Record
       unit_price: item.unit_price,
       subtotal: Number(item.unit_price) * Number(item.quantity)
     })),
-    customer: customerResult.data ? {
-      nombre: customerResult.data.full_name,
-      email: customerResult.data.email,
-      cuit: customerResult.data.tax_id,
-      codigoArea: customerResult.data.phone_area_code,
-      celular: customerResult.data.phone_number
-    } : null,
-    shipping: {
-      method: addressResult.data?.shipping_method ?? "pickup",
-      address: addressResult.data ? {
-        recipient_name: addressResult.data.recipient_name,
-        postal_code: addressResult.data.postal_code,
-        province: addressResult.data.province,
-        locality: addressResult.data.locality,
-        county: addressResult.data.county,
-        street: addressResult.data.street,
-        street_number: addressResult.data.street_number,
-        floor: addressResult.data.floor,
-        apartment: addressResult.data.apartment,
-        observations: addressResult.data.observations,
-        country: addressResult.data.country
-      } : null
+    totals: {
+      subtotal_ars: order.subtotal_amount,
+      shipping_ars: order.shipping_amount,
+      total_ars: order.total_amount,
+      payment_commission_percentage: order.payment_commission_percentage,
+      payment_commission_amount: order.payment_commission_amount
     }
   });
 }

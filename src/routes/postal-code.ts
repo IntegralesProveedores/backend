@@ -16,7 +16,7 @@ export async function handlePostalCode({ env, params }: RouteContext) {
       .limit(1)
       .maybeSingle();
 
-    if (error) return errorResponse(error.message, 500);
+    if (error) return errorResponse("Unable to look up postal code", 500, { supabase_error: error.message });
     if (!data) return errorResponse("Postal code not found", 404);
 
     return jsonResponse({
@@ -27,6 +27,6 @@ export async function handlePostalCode({ env, params }: RouteContext) {
       country: "Argentina"
     }, 200, 86400);
   } catch (e: any) {
-    return errorResponse(`Postal code Handler Error: ${e.message}`, 500, { stack: e.stack });
+    return errorResponse("Unable to look up postal code", 500, { original_message: e.message, stack: e.stack });
   }
 }

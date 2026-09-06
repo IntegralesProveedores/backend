@@ -1,5 +1,5 @@
 import { getSupabase } from "../services/db";
-import { getPricingConfig } from "../services/settings";
+import { getPricingConfig, getCachedTaxes, getCachedVolumeDiscounts } from "../services/settings";
 import { jsonResponse, errorResponse } from "../lib/response";
 import { PRODUCT_SUMMARY_SELECT, PRODUCT_DETAIL_SELECT, cleanProduct, DEFAULT_VOLUME_DISCOUNTS } from "../lib/products";
 import { RouteContext } from "../lib/router";
@@ -22,38 +22,18 @@ export async function handleProducts({ env, url }: RouteContext) {
       .order("volume_cc", { ascending: true })
       .range(offset, offset + limit - 1);
 
-    const [pricingConfig, productsResult, taxesResult, discountsResult] = await Promise.all([
+    const [pricingConfig, productsResult, taxes, volumeDiscounts] = await Promise.all([
       getPricingConfig(env),
       productsQuery,
-      supabase
-        .from("pricing_taxes")
-        .select("name, percentage, is_computable, is_active")
-        .eq("is_active", true),
-      supabase
-        .from("pricing_volume_discounts")
-        .select("min_quantity, factor")
-        .order("min_quantity", { ascending: false })
+      getCachedTaxes(env),
+      getCachedVolumeDiscounts(env)
     ]);
 
     const { data, error, count } = productsResult;
     if (error) {
-      return errorResponse(error.message, 500);
+      return errorResponse("Unable to load products", 500, { supabase_error: error.message });
     }
 
-    const { data: dbTaxes } = taxesResult;
-    const { data: dbDiscounts } = discountsResult;
-
-    const taxes = (dbTaxes ?? []).map(t => ({
-      name: t.name,
-      percentage: Number(t.percentage),
-      is_computable: t.is_computable,
-      is_active: t.is_active
-    }));
-
-    const volumeDiscounts = (dbDiscounts ?? []).map(d => ({
-      min: Number(d.min_quantity),
-      factor: Number(d.factor)
-    }));
     const resolvedVolumeDiscounts = volumeDiscounts.length > 0 ? volumeDiscounts : DEFAULT_VOLUME_DISCOUNTS;
 
     const products = (data ?? []) as unknown as RawProduct[];
@@ -78,7 +58,7 @@ export async function handleProducts({ env, url }: RouteContext) {
       }
     }, 200, 60);
   } catch (e: any) {
-    return errorResponse(`handleProducts Error: ${e.message}`, 500, { stack: e.stack });
+    return errorResponse("Unable to load products", 500, { original_message: e.message, stack: e.stack });
   }
 }
 
@@ -99,17 +79,11 @@ export async function handleProductBySlug({ env, params, url }: RouteContext) {
       .is("deleted_at", null)
       .single();
 
-    const [pricingConfig, productResult, taxesResult, discountsResult] = await Promise.all([
+    const [pricingConfig, productResult, taxes, volumeDiscounts] = await Promise.all([
       getPricingConfig(env),
       productQuery,
-      supabase
-        .from("pricing_taxes")
-        .select("name, percentage, is_computable, is_active")
-        .eq("is_active", true),
-      supabase
-        .from("pricing_volume_discounts")
-        .select("min_quantity, factor")
-        .order("min_quantity", { ascending: false })
+      getCachedTaxes(env),
+      getCachedVolumeDiscounts(env)
     ]);
 
     const { data, error } = productResult;
@@ -118,20 +92,6 @@ export async function handleProductBySlug({ env, params, url }: RouteContext) {
       return errorResponse("Product not found", 404);
     }
 
-    const { data: dbTaxes } = taxesResult;
-    const { data: dbDiscounts } = discountsResult;
-
-    const taxes = (dbTaxes ?? []).map(t => ({
-      name: t.name,
-      percentage: Number(t.percentage),
-      is_computable: t.is_computable,
-      is_active: t.is_active
-    }));
-
-    const volumeDiscounts = (dbDiscounts ?? []).map(d => ({
-      min: Number(d.min_quantity),
-      factor: Number(d.factor)
-    }));
     const resolvedVolumeDiscounts = volumeDiscounts.length > 0 ? volumeDiscounts : DEFAULT_VOLUME_DISCOUNTS;
 
     const product = data as unknown as RawProduct;
@@ -163,6 +123,6 @@ export async function handleProductBySlug({ env, params, url }: RouteContext) {
       }
     });
   } catch (e: any) {
-    return errorResponse(`handleProductBySlug Error: ${e.message}`, 500, { stack: e.stack });
+    return errorResponse("Unable to load product", 500, { original_message: e.message, stack: e.stack });
   }
 }

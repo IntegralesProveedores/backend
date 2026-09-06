@@ -1,8 +1,12 @@
 import { jsonResponse, errorResponse } from "../lib/response";
 import { RouteContext } from "../lib/router";
-import { resolveShippingRate } from "../services/payment.service";
+import { resolveShippingRate } from "../services/shipping.service";
+import { enforceRateLimit } from "../lib/rate-limit";
 
 export async function handleShippingQuote({ env, request }: RouteContext) {
+  const limited = await enforceRateLimit(env, request, "shipping/quote");
+  if (limited) return limited;
+
   const body = await request.json() as { postal_code?: unknown; items?: unknown };
   const postalCode = body?.postal_code;
   const items = body?.items;

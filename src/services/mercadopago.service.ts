@@ -99,8 +99,7 @@ export class MercadoPagoService {
         template,
         expected_hash: expected,
         received_hash: signature.value,
-        secret_length: secret.length,
-        secret_preview: `${secret.slice(0, 4)}...${secret.slice(-4)}`
+        has_secret: !!secret
       }));
     }
 

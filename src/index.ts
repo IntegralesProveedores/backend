@@ -35,6 +35,10 @@ function withCors(request: Request, response: Response): Response {
   } else {
     headers.delete("Access-Control-Allow-Origin");
   }
+  // Access-Control-Allow-Origin varía según el Origin del request: sin este
+  // header, un cache (CDN/browser) podría servirle a un origen la respuesta
+  // cacheada para otro origen distinto.
+  headers.set("Vary", "Origin");
   return new Response(response.body, {
     status: response.status,
     headers

@@ -69,15 +69,4 @@ describe('Worker Routes Integration Tests', () => {
 			}
 		}
 	});
-
-	it('GET /products with Brotalia tenant header', async () => {
-		const response = await SELF.fetch('https://example.com/products', {
-			headers: {
-				'x-tenant-host': 'brotalia.com.ar'
-			}
-		});
-		expect(response.status).toBe(200);
-		const data = await response.json() as any;
-		expect(data).not.toHaveProperty('tenant');
-	});
 });

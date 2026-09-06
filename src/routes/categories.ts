@@ -46,7 +46,7 @@ export async function handleCategories({ env, url }: RouteContext) {
     .order("name", { ascending: true });
 
   if (error) {
-    return errorResponse(error.message, 500);
+    return errorResponse("Unable to load categories", 500, { supabase_error: error.message });
   }
 
   const cleaned = (data ?? []).map(cleanCategory);
@@ -117,7 +117,7 @@ export async function handleCategoryProducts({ env, params, url }: RouteContext)
   const { data: products, error, count } = productsResult;
 
   if (error) {
-    return errorResponse(error.message, 500);
+    return errorResponse("Unable to load category products", 500, { supabase_error: error.message });
   }
 
   return jsonResponse({

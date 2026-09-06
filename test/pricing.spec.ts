@@ -1,10 +1,19 @@
 import { describe, it, expect } from 'vitest';
-import { calculatePriceV2, DEFAULT_TAX_RULES } from '../src/lib/pricing';
+import { calculatePriceV2, TaxRule } from '../src/lib/pricing';
 
 /**
  * Casos de prueba para validación de Pricing Engine V2.
  * Datos de entrada basados en la auditoría de paridad final.
+ *
+ * pricing.ts no expone un set de impuestos por defecto (los impuestos
+ * siempre vienen de la tabla pricing_taxes en runtime), así que estos
+ * casos fijan localmente el único impuesto que asumen los cálculos de
+ * paridad documentados abajo: IVA 21% computable.
  */
+const DEFAULT_TAX_RULES: TaxRule[] = [
+  { name: 'IVA', percentage: 21, is_computable: true, is_active: true }
+];
+
 describe('Pricing Engine V2 - Shadow Mode Validation', () => {
   const EXCHANGE_RATE = 1450;
   

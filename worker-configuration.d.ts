@@ -7,17 +7,12 @@ declare namespace Cloudflare {
 	}
 	interface Env {
 		PRICING_CACHE: KVNamespace;
+		RATE_LIMITER: RateLimit;
 		APP_BASE_URL: string;
-		EMAILJS_PUBLIC_KEY: string;
-		EMAILJS_PRIVATE_KEY: string;
-		EMAILJS_SERVICE_ID: string;
-		EMAILJS_TEMPLATE_ID: string;
 		MP_ACCESS_TOKEN: string;
-		MP_PUBLIC_KEY: string;
 		MP_WEBHOOK_SECRET: string;
 		MP_WEBHOOK_NOTIFICATION_URL: string;
 		SUPABASE_URL: string;
-		SUPABASE_ANON_KEY: string;
 		SUPABASE_SERVICE_ROLE_KEY: string;
 		RESEND_API_KEY: string;
 	}
@@ -27,7 +22,7 @@ type StringifyValues<EnvType extends Record<string, unknown>> = {
 	[Binding in keyof EnvType]: EnvType[Binding] extends string ? EnvType[Binding] : string;
 };
 declare namespace NodeJS {
-	interface ProcessEnv extends StringifyValues<Pick<Cloudflare.Env, "APP_BASE_URL" | "EMAILJS_PUBLIC_KEY" | "EMAILJS_PRIVATE_KEY" | "EMAILJS_SERVICE_ID" | "EMAILJS_TEMPLATE_ID" | "MP_ACCESS_TOKEN" | "MP_PUBLIC_KEY" | "MP_WEBHOOK_SECRET" | "MP_WEBHOOK_NOTIFICATION_URL" | "SUPABASE_URL" | "SUPABASE_ANON_KEY" | "SUPABASE_SERVICE_ROLE_KEY" | "RESEND_API_KEY">> {}
+	interface ProcessEnv extends StringifyValues<Pick<Cloudflare.Env, "APP_BASE_URL" | "MP_ACCESS_TOKEN" | "MP_WEBHOOK_SECRET" | "MP_WEBHOOK_NOTIFICATION_URL" | "SUPABASE_URL" | "SUPABASE_SERVICE_ROLE_KEY" | "RESEND_API_KEY">> {}
 }
 
 // Begin runtime types

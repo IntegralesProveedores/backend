@@ -24,6 +24,7 @@ export interface RawCategory {
   name: string;
   slug: string;
   parent_id?: string | null;
+  parent?: RawCategory | null;
 }
 
 export interface RawProduct {

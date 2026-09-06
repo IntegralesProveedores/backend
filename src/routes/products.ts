@@ -135,9 +135,24 @@ export async function handleProductBySlug({ env, params, url }: RouteContext) {
     const resolvedVolumeDiscounts = volumeDiscounts.length > 0 ? volumeDiscounts : DEFAULT_VOLUME_DISCOUNTS;
 
     const product = data as unknown as RawProduct;
+    const cleaned = cleanProduct(product, pricingConfig.exchangeRate, pricingConfig.markups.minorista, pricingConfig.embalageCost, quantity, taxes, volumeDiscounts);
+
+    // El breadcrumb necesita la categoría padre (ej. Agroindustrial > Macetas
+    // Biodegradables); se resuelve en una query aparte en vez de un embed
+    // self-referencing de Supabase porque PostgREST no puede desambiguar la
+    // dirección del embed cuando "categories" se referencia a sí misma
+    // dentro de un select ya anidado (products -> product_categories -> categories).
+    if (cleaned.category?.parent_id) {
+      const { data: parent } = await supabase
+        .from("categories")
+        .select("id, name, slug")
+        .eq("id", cleaned.category.parent_id)
+        .maybeSingle();
+      if (parent) cleaned.category.parent = parent;
+    }
 
     return jsonResponse({
-      ...(cleanProduct(product, pricingConfig.exchangeRate, pricingConfig.markups.minorista, pricingConfig.embalageCost, quantity, taxes, volumeDiscounts)),
+      ...cleaned,
       pricing_config: {
         exchange_rate: pricingConfig.exchangeRate,
         embalaje_cost: pricingConfig.embalageCost,

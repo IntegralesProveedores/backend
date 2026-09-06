@@ -141,16 +141,19 @@ interface OrderPaymentRow {
 interface OrderConfirmationOrderRow {
   id: string;
   total_amount: number | string;
+  subtotal_amount: number | string;
   shipping_amount: number | string;
   exchange_rate_used: number | string;
 }
 
 interface OrderConfirmationProductRow {
+  id: string;
   name: string;
 }
 
 interface OrderConfirmationVariantRow {
   sku: string;
+  units_per_pack: number | null;
   products: OrderConfirmationProductRow | OrderConfirmationProductRow[] | null;
 }
 
@@ -498,6 +501,15 @@ const EMAIL_COLORS = {
   wrapperBg: "#f4f4f4"
 };
 
+/** Único lugar donde configurar el remitente de los mails de confirmación. */
+const EMAIL_FROM = "\"Brotalia\" <ventas@brotalia.com.ar>";
+
+/**
+ * Fuente para títulos de bloque y montos finales, sin depender de webfonts
+ * (los clientes de correo no las cargan de forma confiable).
+ */
+const EMAIL_FONT_IMPACT = "Impact,'Arial Narrow Bold','Arial Black',sans-serif";
+
 /**
  * https://wa.me/5491130226565 es el link de WhatsApp del negocio ya usado en
  * el sitio (footer, contacto): 54 (país) + 9 (celular AR) + 11 (área) +
@@ -513,11 +525,16 @@ function buildCustomerWhatsAppUrl(areaCode: string | null | undefined, localNumb
   return `https://wa.me/549${cleanArea}${cleanLocal}`;
 }
 
+/** Formato de teléfono para los mails: área + número separados por espacio, sin paréntesis. */
+function formatCustomerPhone(areaCode: string | null | undefined, localNumber: string | null | undefined): string {
+  return [areaCode, localNumber].filter(Boolean).join(" ");
+}
+
 /** "Tarjeta" blanca con título en mayúsculas, estilo de bloque de app-order-summary. */
 function emailBlockHtml(title: string, bodyHtml: string, subtitle?: string): string {
   return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="width:100%;background-color:${EMAIL_COLORS.cardBg};border-radius:12px;">
     <tr><td style="padding:16px 18px;font-family:Arial,sans-serif;">
-      <div style="font-weight:bold;font-size:14px;color:${EMAIL_COLORS.title};text-transform:uppercase;letter-spacing:.03em;">${title}${subtitle ? ` <span style="font-weight:normal;text-transform:none;color:${EMAIL_COLORS.label};font-size:12px;">— ${subtitle}</span>` : ""}</div>
+      <div style="font-family:${EMAIL_FONT_IMPACT};font-size:16px;color:${EMAIL_COLORS.title};text-transform:uppercase;letter-spacing:.03em;">${title}${subtitle ? ` <span style="font-family:Arial,sans-serif;font-weight:normal;text-transform:none;color:${EMAIL_COLORS.label};font-size:12px;">— ${subtitle}</span>` : ""}</div>
       <div style="height:10px;line-height:10px;font-size:1px;">&nbsp;</div>
       ${bodyHtml}
     </td></tr>
@@ -540,9 +557,10 @@ function emailFieldsTableHtml(rowsHtml: string): string {
   return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">${rowsHtml}</table>`;
 }
 
-function buildEmailHeaderHtml(orderLabel: string): string {
+function buildEmailHeaderHtml(orderLabel: string, logoUrl: string): string {
   return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr><td style="text-align:center;padding-bottom:16px;font-family:Arial,sans-serif;">
-    <div style="font-size:20px;font-weight:bold;color:${EMAIL_COLORS.title};letter-spacing:.02em;">DETALLE DEL PEDIDO</div>
+    <img src="${logoUrl}" alt="Brotalia" width="120" style="width:120px;max-width:120px;height:auto;margin-bottom:12px;">
+    <div style="font-family:${EMAIL_FONT_IMPACT};font-size:22px;color:${EMAIL_COLORS.title};letter-spacing:.02em;">DETALLE DEL PEDIDO</div>
     <div style="font-size:12px;color:${EMAIL_COLORS.label};margin-top:4px;">${orderLabel}</div>
   </td></tr></table>`;
 }
@@ -608,7 +626,7 @@ export async function sendTransferOrderConfirmationEmail(env: Env, input: Transf
     }>;
 
     // ---- Datos personales ----
-    const phone = `(${input.customer.codigoArea}) ${input.customer.celular}`;
+    const phone = formatCustomerPhone(input.customer.codigoArea, input.customer.celular);
     const datosPersonalesHtml = emailBlockHtml("Datos personales", emailFieldsTableHtml([
       emailFieldRowHtml("Nombre", escapeHtmlForEmail(input.customer.nombre)),
       emailFieldRowHtml("Email", escapeHtmlForEmail(input.customer.email)),
@@ -748,8 +766,8 @@ export async function sendTransferOrderConfirmationEmail(env: Env, input: Transf
     const totalesHtml = emailBlockHtml("Totales", `${totalesRowsHtml}
       <div style="margin-top:10px;padding-top:10px;border-top:1px solid #f2f2f2;">
         <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr>
-          <td style="font-family:Arial,sans-serif;font-weight:bold;font-size:15px;color:${EMAIL_COLORS.title};">TOTAL</td>
-          <td style="text-align:right;font-family:Arial,sans-serif;font-weight:bold;font-size:20px;color:${EMAIL_COLORS.accent};">$${formatArsAmount(input.totalArs)}</td>
+          <td style="font-family:${EMAIL_FONT_IMPACT};font-size:16px;color:${EMAIL_COLORS.title};">TOTAL</td>
+          <td style="text-align:right;font-family:${EMAIL_FONT_IMPACT};font-size:22px;color:${EMAIL_COLORS.accent};">$${formatArsAmount(input.totalArs)}</td>
         </tr></table>
         <div style="text-align:right;font-family:Arial,sans-serif;font-size:11px;color:${EMAIL_COLORS.label};font-style:italic;margin-top:2px;">${escapeHtmlForEmail(input.vatLabel)}</div>
       </div>`);
@@ -765,7 +783,8 @@ export async function sendTransferOrderConfirmationEmail(env: Env, input: Transf
 
     // ---- Ensamblado ----
     const blocksHtml = [datosPersonalesHtml, productosHtml, entregaHtml, pagoHtml, totalesHtml].join("");
-    const mensajeHtml = buildEmailWrapperHtml(buildEmailHeaderHtml(`Pedido #${input.orderRef}`), blocksHtml, buildEmailFooterHtml());
+    const logoUrl = `${env.APP_BASE_URL.replace(/\/$/, "")}/assets/images/brotalia-iso-00.png`;
+    const mensajeHtml = buildEmailWrapperHtml(buildEmailHeaderHtml(`Pedido #${input.orderRef}`, logoUrl), blocksHtml, buildEmailFooterHtml());
     const mensajeText = [
       "DETALLE DEL PEDIDO",
       `Pedido #${input.orderRef}`,
@@ -790,10 +809,10 @@ export async function sendTransferOrderConfirmationEmail(env: Env, input: Transf
         "Content-Type": "application/json"
       },
       body: JSON.stringify({
-        from: "\"Brotalia, Orden de Compra\" <ventas@brotalia.com.ar>",
+        from: EMAIL_FROM,
         to: [input.customer.email],
         cc: ["integralesproveedores@gmail.com"],
-        subject: `Confirmación de tu pedido #${input.orderRef} - Brotalia`,
+        subject: `Orden de Compra #${input.orderRef}`,
         html: mensajeHtml,
         text: mensajeText
       })
@@ -1012,10 +1031,14 @@ export class PaymentService {
   /**
    * Mail de confirmación de pago aprobado por Mercado Pago. Misma estructura
    * en 5 bloques que sendTransferOrderConfirmationEmail (Datos personales /
-   * Productos / Entrega / Método de pago / Totales); acá no hay descuento
-   * por volumen recalculado ni desglose de embalaje porque esos datos no se
-   * recomputan en este flujo (el webhook de MP solo tiene el total ya
-   * cerrado de la orden).
+   * Productos / Entrega / Método de pago / Totales). El embalaje se
+   * recalcula acá a partir de order_items + código postal (ver más abajo),
+   * igual que en el mail de transferencia. El % de descuento por volumen NO
+   * se muestra porque no se persiste en ningún lado (ni en orders ni en
+   * order_items): reconstruirlo con exactitud requeriría una migración que
+   * guarde ese dato al crear la orden, o recalcularlo con el pricing vigente
+   * al momento del mail (que puede no coincidir con el vigente al momento de
+   * la compra).
    */
   private async sendOrderConfirmationEmail(
     orderId: string,
@@ -1026,7 +1049,7 @@ export class PaymentService {
       const [orderResult, itemsResult, customerResult, addressResult] = await Promise.all([
         supabase
           .from("orders")
-          .select("id, total_amount, shipping_amount, exchange_rate_used")
+          .select("id, total_amount, subtotal_amount, shipping_amount, exchange_rate_used")
           .eq("id", orderId)
           .single(),
         supabase
@@ -1037,7 +1060,9 @@ export class PaymentService {
             unit_price,
             product_variants (
               sku,
+              units_per_pack,
               products (
+                id,
                 name
               )
             )
@@ -1079,7 +1104,7 @@ export class PaymentService {
         Array.isArray(value) ? value[0] : value;
       const getProduct = (value: OrderConfirmationProductRow | OrderConfirmationProductRow[] | null) =>
         Array.isArray(value) ? value[0] : value;
-      const phone = [customer.phone_area_code, customer.phone_number].filter(Boolean).join(" ");
+      const phone = formatCustomerPhone(customer.phone_area_code, customer.phone_number);
       const customerWaUrl = buildCustomerWhatsAppUrl(customer.phone_area_code, customer.phone_number);
 
       // ---- Datos personales ----
@@ -1130,6 +1155,36 @@ export class PaymentService {
         })
       ].join("\n");
 
+      // ---- Embalaje (recalculado a partir de order_items + código postal; no se
+      // persiste en la orden, así que se reconstruye igual que en el mail de
+      // transferencia en vez de agregar una columna nueva solo para esto) ----
+      let shippingBoxes: ShippingBox[] = [];
+      if (address?.shipping_method === "delivery" && address.postal_code) {
+        const productGroups = Array.from(items.reduce((groups, item) => {
+          const variant = getVariant(item.product_variants);
+          const product = getProduct(variant?.products ?? null);
+          if (!product?.id) return groups;
+          const unitsPerPack = Number(variant?.units_per_pack ?? 1);
+          groups.set(product.id, (groups.get(product.id) ?? 0) + Number(item.quantity) * unitsPerPack);
+          return groups;
+        }, new Map<string, number>()), ([product_id, units]) => ({ product_id, units }));
+        try {
+          const resolution = await resolveShippingRate(this.env, address.postal_code, productGroups);
+          shippingBoxes = resolution?.boxes ?? [];
+        } catch (error) {
+          console.error("Unable to recompute shipping boxes for confirmation email:", error);
+        }
+      }
+      const embalajeHtml = shippingBoxes.length
+        ? `<div style="margin-top:10px;padding-top:10px;border-top:1px solid #f2f2f2;">
+            <div style="font-size:12px;color:${EMAIL_COLORS.label};margin-bottom:4px;">Embalaje</div>
+            ${emailFieldsTableHtml(shippingBoxes.map(b => emailFieldRowHtml(`${b.count} x ${escapeHtmlForEmail(b.boxModelName)}`, `${b.widthCm} x ${b.lengthCm} x ${b.heightCm} cm`)).join(""))}
+          </div>`
+        : "";
+      const embalajeTextLines = shippingBoxes.length
+        ? ["", "Embalaje:", ...shippingBoxes.map(b => `- ${b.count} x ${b.boxModelName} (${b.widthCm} x ${b.lengthCm} x ${b.heightCm} cm)`)]
+        : [];
+
       // ---- Entrega ----
       let entregaBodyHtml: string;
       let entregaTextLines: string[];
@@ -1161,7 +1216,7 @@ export class PaymentService {
           emailFieldRowHtml("Código Postal", escapeHtmlForEmail(address.postal_code)),
           emailFieldRowHtml("Costo de envío", `$${formatArsAmount(order.shipping_amount)}`),
           ...(customerWaUrl ? [emailFieldRowHtml("Contacto (WhatsApp)", `<a href="${customerWaUrl}" style="color:${EMAIL_COLORS.accent};text-decoration:none;font-weight:bold;">${escapeHtmlForEmail(phone)}</a>`)] : [])
-        ].join(""));
+        ].join("")) + embalajeHtml;
         entregaTextLines = [
           `Destinatario: ${address.recipient_name ?? ""}`,
           `Dirección: ${direccionCompleta}`,
@@ -1169,7 +1224,8 @@ export class PaymentService {
           `Provincia: ${address.province ?? ""}`,
           `Código Postal: ${address.postal_code ?? ""}`,
           `Costo de envío: $${formatArsAmount(order.shipping_amount)}`,
-          ...(customerWaUrl ? [`Contacto (WhatsApp): ${phone} (${customerWaUrl})`] : [])
+          ...(customerWaUrl ? [`Contacto (WhatsApp): ${phone} (${customerWaUrl})`] : []),
+          ...embalajeTextLines
         ];
       }
       const entregaHtml = emailBlockHtml("Entrega", entregaBodyHtml);
@@ -1189,20 +1245,25 @@ export class PaymentService {
       ].join("\n");
 
       // ---- Totales ----
-      const totalesHtml = emailBlockHtml("Totales", `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr>
-            <td style="font-family:Arial,sans-serif;font-weight:bold;font-size:15px;color:${EMAIL_COLORS.title};">TOTAL</td>
-            <td style="text-align:right;font-family:Arial,sans-serif;font-weight:bold;font-size:20px;color:${EMAIL_COLORS.accent};">$${formatArsAmount(order.total_amount)}</td>
-          </tr></table>
-          <div style="text-align:right;font-family:Arial,sans-serif;font-size:11px;color:${EMAIL_COLORS.label};margin-top:6px;">Cotización usada: $${formatArsAmount(order.exchange_rate_used)}</div>`);
+      const totalesHtml = emailBlockHtml("Totales", `${emailFieldsTableHtml(emailFieldRowHtml("Subtotal", `$${formatArsAmount(order.subtotal_amount)}`))}
+          <div style="margin-top:10px;padding-top:10px;border-top:1px solid #f2f2f2;">
+            <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr>
+              <td style="font-family:${EMAIL_FONT_IMPACT};font-size:16px;color:${EMAIL_COLORS.title};">TOTAL</td>
+              <td style="text-align:right;font-family:${EMAIL_FONT_IMPACT};font-size:22px;color:${EMAIL_COLORS.accent};">$${formatArsAmount(order.total_amount)}</td>
+            </tr></table>
+            <div style="text-align:right;font-family:Arial,sans-serif;font-size:11px;color:${EMAIL_COLORS.label};margin-top:6px;">Cotización usada: $${formatArsAmount(order.exchange_rate_used)}</div>
+          </div>`);
       const totalesText = [
         "TOTALES",
+        `Subtotal: $${formatArsAmount(order.subtotal_amount)}`,
         `TOTAL: $${formatArsAmount(order.total_amount)} ARS`,
         `Cotización usada: $${formatArsAmount(order.exchange_rate_used)}`
       ].join("\n");
 
       // ---- Ensamblado ----
       const blocksHtml = [datosPersonalesHtml, productosHtml, entregaHtml, pagoHtml, totalesHtml].join("");
-      const mensajeHtml = buildEmailWrapperHtml(buildEmailHeaderHtml(`Pedido #${orderId}`), blocksHtml, buildEmailFooterHtml());
+      const logoUrl = `${this.env.APP_BASE_URL.replace(/\/$/, "")}/assets/images/brotalia-iso-00.png`;
+      const mensajeHtml = buildEmailWrapperHtml(buildEmailHeaderHtml(`Pedido #${orderId}`, logoUrl), blocksHtml, buildEmailFooterHtml());
       const mensajeText = [
         "DETALLE DEL PEDIDO",
         `Pedido #${orderId}`,
@@ -1227,7 +1288,7 @@ export class PaymentService {
           "Content-Type": "application/json"
         },
         body: JSON.stringify({
-          from: "\"Brotalia, Orden de Compra\" <ventas@brotalia.com.ar>",
+          from: EMAIL_FROM,
           to: [customer.email],
           cc: ["integralesproveedores@gmail.com"],
           subject: `Confirmación de tu pedido #${orderId} - Brotalia`,

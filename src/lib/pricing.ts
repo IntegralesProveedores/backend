@@ -1,5 +1,5 @@
 export const EMBALAJE_COST = 745.56;
-const round = (val: number) => Math.round((val + Number.EPSILON) * 100) / 100;
+export const round = (val: number) => Math.round((val + Number.EPSILON) * 100) / 100;
 
 export interface TaxRule {
   name: string;

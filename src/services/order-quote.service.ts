@@ -1,6 +1,6 @@
 import { getSupabase } from "./db";
 import { getPricingConfig, getCachedTaxes, getCachedVolumeDiscounts } from "./settings";
-import { calculatePriceV2, TaxRule } from "../lib/pricing";
+import { calculatePriceV2, TaxRule, round as round2 } from "../lib/pricing";
 import { resolveVolumeDiscountFactor } from "../lib/products";
 import { ShippingInput } from "../lib/payment-input.validation";
 import { ShippingBox, resolveShippingRate } from "./shipping.service";
@@ -67,13 +67,12 @@ export interface OrderQuote {
   shippingArs: number;
   shippingBoxes: ShippingBox[];
   exchangeRate: number;
+  paymentCommissionPercentage: number;
   /** Insumos para calcular el % de descuento por volumen ponderado que
    *  muestra el mail de confirmación de transferencia. */
   volumeDiscountWeightedSum: number;
   volumeDiscountTotalWeight: number;
 }
-
-const round2 = (value: number): number => Math.round((value + Number.EPSILON) * 100) / 100;
 
 export async function buildOrderQuote(
   env: Env,
@@ -224,6 +223,7 @@ export async function buildOrderQuote(
     shippingArs,
     shippingBoxes,
     exchangeRate: pricingConfig.exchangeRate,
+    paymentCommissionPercentage: pricingConfig.paymentCommissionPercentage,
     volumeDiscountWeightedSum,
     volumeDiscountTotalWeight
   };

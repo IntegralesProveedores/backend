@@ -1,5 +1,4 @@
 import { getSupabase } from "./db";
-import { getPricingConfig } from "./settings";
 import { calculateOrderCommission } from "../lib/pricing";
 import {
   MercadoPagoPayer,
@@ -54,12 +53,11 @@ export class PaymentService {
 
     const supabase = getSupabase(this.env);
     const quote = await buildOrderQuote(this.env, input.items, input.shipping);
-    const pricingConfig = await getPricingConfig(this.env);
     const commission = calculateOrderCommission(
       quote.subtotalArs,
       quote.shippingArs,
       "mercadopago",
-      pricingConfig.paymentCommissionPercentage
+      quote.paymentCommissionPercentage
     );
     const externalReference = crypto.randomUUID();
     const createdOrder = await createOrderRecord(

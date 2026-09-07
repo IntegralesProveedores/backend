@@ -107,13 +107,12 @@ export async function handleCategoryProducts({ env, params, url, request }: Rout
     return errorResponse("Category not found", 404);
   }
 
-  const { data: children } = await supabase
-    .from("categories")
-    .select("id")
-    .eq("parent_id", category.id);
+  const [{ data: children }, pricingConfig] = await Promise.all([
+    supabase.from("categories").select("id").eq("parent_id", category.id),
+    getPricingConfig(env)
+  ]);
 
   const categoryIds = [category.id, ...(children ?? []).map((c: any) => c.id)];
-  const pricingConfig = await getPricingConfig(env);
 
   let productsResult = await supabase
     .from("products")

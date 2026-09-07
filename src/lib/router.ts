@@ -19,7 +19,7 @@ export type RouteHandler = (ctx: RouteContext) => Promise<Response>;
 
 /** Definición de una ruta */
 export interface Route {
-  method: "GET" | "POST" | "PUT" | "DELETE" | "OPTIONS";
+  method: "GET" | "POST";
   path: string; // Puede contener :params
   handler: RouteHandler;
 }

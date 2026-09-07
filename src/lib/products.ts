@@ -1,5 +1,5 @@
 import { RawProduct, CleanProduct, CleanVariant, RawCategory } from "./types";
-import { calculatePriceV2, TaxRule, EMBALAJE_COST } from "./pricing";
+import { calculatePriceV2, TaxRule, EMBALAJE_COST, round } from "./pricing";
 
 export const DEFAULT_VOLUME_DISCOUNTS = [
   { min: 31, factor: 1.25 },
@@ -82,7 +82,7 @@ export function cleanProduct(
       const equivalentPacks = (presentation_quantity * quantity) / units_per_pack_master;
       const discountFactor = resolveVolumeDiscountFactor(equivalentPacks, discounts);
 
-      const costUsdMasterWithDiscount = Math.round((cost_usd_master / discountFactor + Number.EPSILON) * 100) / 100;
+      const costUsdMasterWithDiscount = round(cost_usd_master / discountFactor);
       const markup_val = Number(markupMinorista) || 0;
 
       const v2Result = calculatePriceV2({
@@ -103,7 +103,7 @@ export function cleanProduct(
       const vat_label = vat_included ? 'IVA Incluido' : 'IVA no incluido';
 
       const price_ars_val = Math.round(v2Result.precio_final_ars);
-      const price_usd_val = Math.round((price_ars_val / exchangeRate + Number.EPSILON) * 100) / 100;
+      const price_usd_val = round(price_ars_val / exchangeRate);
 
       const variant: CleanVariant = {
         id: v.id,

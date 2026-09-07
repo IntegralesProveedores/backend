@@ -1,5 +1,4 @@
 import { getSupabase } from "../services/db";
-import { getPricingConfig } from "../services/settings";
 import { errorResponse, jsonResponse } from "../lib/response";
 import { calculateOrderCommission } from "../lib/pricing";
 import { createOrderRecord } from "../services/orders.repository";
@@ -11,7 +10,7 @@ import {
   ShippingInput
 } from "../lib/payment-input.validation";
 import { buildOrderQuote, OrderQuoteError } from "../services/order-quote.service";
-import { MAX_ORDER_ITEMS } from "../lib/payment-input.validation";
+import { MAX_ORDER_ITEMS, isValidEmail } from "../lib/payment-input.validation";
 import { sendTransferOrderConfirmationEmail } from "../services/email/order-confirmation-templates";
 import { enforceRateLimit } from "../lib/rate-limit";
 
@@ -33,10 +32,6 @@ type OrderBody = {
   customer?: OrderCustomerInput;
   shipping?: unknown;
   payment_method?: 'mercadopago' | 'transferencia';
-};
-
-const isValidEmail = (value: unknown): value is string => {
-  return typeof value === "string" && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
 };
 
 export async function handleCreateOrder({ request, env }: { request: Request; env: any }) {
@@ -77,8 +72,6 @@ export async function handleCreateOrder({ request, env }: { request: Request; en
       }
     }
 
-    const pricingConfig = await getPricingConfig(env);
-
     let quote;
     try {
       quote = await buildOrderQuote(env, items, shipping);
@@ -88,7 +81,7 @@ export async function handleCreateOrder({ request, env }: { request: Request; en
     }
 
     const paymentMethod = body.payment_method === 'transferencia' ? 'transferencia' : 'mercadopago';
-    const commission = calculateOrderCommission(quote.subtotalArs, quote.shippingArs, paymentMethod, pricingConfig.paymentCommissionPercentage);
+    const commission = calculateOrderCommission(quote.subtotalArs, quote.shippingArs, paymentMethod, quote.paymentCommissionPercentage);
 
     const orderRef = crypto.randomUUID();
 

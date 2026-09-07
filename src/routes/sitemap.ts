@@ -1,5 +1,6 @@
 import { getSupabase } from "../services/db";
 import { RouteContext } from "../lib/router";
+import { enforceRateLimit } from "../lib/rate-limit";
 
 const SITE_URL = "https://brotalia.com.ar";
 
@@ -52,7 +53,18 @@ function formatDate(value: string | null | undefined): string | null {
   return date.toISOString().slice(0, 10);
 }
 
-export async function handleSitemap({ env }: RouteContext) {
+function buildSitemapXml(staticUrls: string, productUrls = ""): string {
+  return `<?xml version="1.0" encoding="UTF-8"?>\n` +
+    `<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n` +
+    staticUrls +
+    productUrls +
+    `</urlset>\n`;
+}
+
+export async function handleSitemap({ env, request }: RouteContext) {
+  const limited = await enforceRateLimit(env, request, "sitemap");
+  if (limited) return limited;
+
   const staticUrls = buildStaticUrls();
   const supabase = getSupabase(env);
 
@@ -82,11 +94,7 @@ export async function handleSitemap({ env }: RouteContext) {
       })
     ).join("");
 
-    const xml = `<?xml version="1.0" encoding="UTF-8"?>\n` +
-      `<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n` +
-      staticUrls +
-      productUrls +
-      `</urlset>\n`;
+    const xml = buildSitemapXml(staticUrls, productUrls);
 
     return new Response(xml, {
       status: 200,
@@ -96,10 +104,7 @@ export async function handleSitemap({ env }: RouteContext) {
       }
     });
   } catch {
-    const xml = `<?xml version="1.0" encoding="UTF-8"?>\n` +
-      `<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n` +
-      staticUrls +
-      `</urlset>\n`;
+    const xml = buildSitemapXml(staticUrls);
 
     return new Response(xml, {
       status: 200,

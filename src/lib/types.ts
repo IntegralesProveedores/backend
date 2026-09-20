@@ -17,6 +17,7 @@ export interface RawVariant {
   diameter_cm?: number | null;
   is_active: boolean;
   deleted_at: string | null;
+  has_packaging?: boolean | null;
 }
 
 export interface RawCategory {
@@ -59,6 +60,7 @@ export interface CleanVariant {
   units_per_pack: number;
   vat_included: boolean;
   vat_label: string;
+  has_packaging?: boolean;
   weight_grams?: number;
   dimensions?: {
     volume_cc: number | null;

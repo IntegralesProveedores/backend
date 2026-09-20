@@ -94,6 +94,7 @@ function refreshExchangeRateBackground(env: any): void {
 export interface PricingConfig {
   exchangeRate: number;
   embalageCost: number;
+  packagingCost: number;
   markups: { minorista: number; mayorista: number };
   shippingPriceBufferPercentage: number;
   paymentCommissionPercentage: number;
@@ -102,6 +103,7 @@ export interface PricingConfig {
 const FALLBACK: PricingConfig = {
   exchangeRate: 1481.94,
   embalageCost: 745.56,
+  packagingCost: 0,
   markups: { minorista: 40, mayorista: 30 },
   shippingPriceBufferPercentage: 40,
   paymentCommissionPercentage: 6.5
@@ -120,6 +122,7 @@ export async function getPricingConfig(env: any): Promise<PricingConfig> {
       return {
         exchangeRate: map.get('usd_exchange_rate') ?? FALLBACK.exchangeRate,
         embalageCost: map.get('embalaje_cost') ?? FALLBACK.embalageCost,
+        packagingCost: map.get('packaging_cost') ?? FALLBACK.packagingCost,
         markups: {
           minorista: map.get('markup_minorista') ?? FALLBACK.markups.minorista,
           mayorista: map.get('markup_mayorista') ?? FALLBACK.markups.mayorista

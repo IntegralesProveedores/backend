@@ -29,7 +29,7 @@ export const PRODUCT_SUMMARY_SELECT = `
     )
   ),
   product_variants (
-    id, sku, stock, units_per_pack, is_active, deleted_at
+    id, sku, stock, units_per_pack, is_active, deleted_at, has_packaging
   ),
   product_images (
     image_url, position
@@ -45,7 +45,7 @@ export const PRODUCT_DETAIL_SELECT = `
     )
   ),
   product_variants (
-    id, sku, stock, units_per_pack, is_active, deleted_at
+    id, sku, stock, units_per_pack, is_active, deleted_at, has_packaging
   ),
   product_images (
     id, image_url, position
@@ -59,7 +59,8 @@ export function cleanProduct(
   embalageCost: number = EMBALAJE_COST,
   quantity: number = 1,
   dbTaxes: TaxRule[] = [],
-  dbDiscounts: { min: number, factor: number }[] = []
+  dbDiscounts: { min: number, factor: number }[] = [],
+  packagingCost: number = 0
 ): CleanProduct {
   if (!product) throw new Error("cleanProduct: product is undefined");
   if (!Number.isFinite(markupMinorista)) throw new Error("cleanProduct: markupMinorista is invalid");
@@ -93,7 +94,8 @@ export function cleanProduct(
         exchange_rate: exchangeRate,
         rentability_percentage: markup_val,
         taxes: taxes,
-        embalaje_cost: embalageCost
+        embalaje_cost: embalageCost,
+        packaging_cost: v.has_packaging ? packagingCost : 0
       });
 
       const stockUnits = Number(v.stock) || 0;
@@ -116,7 +118,8 @@ export function cleanProduct(
         sku: v.sku,
         units_per_pack: presentation_quantity,
         vat_included,
-        vat_label
+        vat_label,
+        has_packaging: !!v.has_packaging
       };
 
       variant.dimensions = {

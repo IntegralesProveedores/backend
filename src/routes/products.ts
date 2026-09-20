@@ -44,11 +44,12 @@ export async function handleProducts({ env, url, request }: RouteContext) {
 
     return jsonResponse({
       items: products.map(p =>
-        cleanProduct(p, pricingConfig.exchangeRate, pricingConfig.markups.minorista, pricingConfig.embalageCost, quantity, taxes, volumeDiscounts)
+        cleanProduct(p, pricingConfig.exchangeRate, pricingConfig.markups.minorista, pricingConfig.embalageCost, quantity, taxes, volumeDiscounts, pricingConfig.packagingCost ?? 0)
       ),
       pricing_config: {
         exchange_rate: pricingConfig.exchangeRate,
         embalaje_cost: pricingConfig.embalageCost,
+        packaging_cost: pricingConfig.packagingCost ?? 0,
         taxes,
         volume_discounts: resolvedVolumeDiscounts,
         markup: pricingConfig.markups.minorista,
@@ -102,7 +103,7 @@ export async function handleProductBySlug({ env, params, url, request }: RouteCo
     const resolvedVolumeDiscounts = volumeDiscounts.length > 0 ? volumeDiscounts : DEFAULT_VOLUME_DISCOUNTS;
 
     const product = data as unknown as RawProduct;
-    const cleaned = cleanProduct(product, pricingConfig.exchangeRate, pricingConfig.markups.minorista, pricingConfig.embalageCost, quantity, taxes, volumeDiscounts);
+    const cleaned = cleanProduct(product, pricingConfig.exchangeRate, pricingConfig.markups.minorista, pricingConfig.embalageCost, quantity, taxes, volumeDiscounts, pricingConfig.packagingCost ?? 0);
 
     // El breadcrumb necesita la categoría padre (ej. Agroindustrial > Macetas
     // Biodegradables); se resuelve en una query aparte en vez de un embed
@@ -123,6 +124,7 @@ export async function handleProductBySlug({ env, params, url, request }: RouteCo
       pricing_config: {
         exchange_rate: pricingConfig.exchangeRate,
         embalaje_cost: pricingConfig.embalageCost,
+        packaging_cost: pricingConfig.packagingCost ?? 0,
         taxes,
         volume_discounts: resolvedVolumeDiscounts,
         markup: pricingConfig.markups.minorista,

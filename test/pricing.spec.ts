@@ -119,3 +119,28 @@ describe('Pricing Engine V2 - Shadow Mode Validation', () => {
     });
   });
 });
+
+describe('Pricing Engine V2 - Packaging diferenciado', () => {
+  const base = {
+    cost_usd_master: 47,
+    units_per_pack_master: 500,
+    presentation_quantity: 24,
+    exchange_rate: 1450,
+    rentability_percentage: 60,
+    taxes: [{ name: 'IVA', percentage: 21, is_computable: true, is_active: true }] as TaxRule[],
+    embalaje_cost: 760
+  };
+
+  it('sin packaging_cost el resultado no cambia (default 0)', () => {
+    const sinParam = calculatePriceV2(base);
+    const conCero = calculatePriceV2({ ...base, packaging_cost: 0 });
+    expect(conCero.precio_final_ars).toBe(sinParam.precio_final_ars);
+  });
+
+  it('suma el packaging al costo operativo, ademas del embalaje', () => {
+    const sin = calculatePriceV2(base);
+    const con = calculatePriceV2({ ...base, packaging_cost: 1200 });
+    expect(con.costo_total_operativo).toBeCloseTo(sin.costo_total_operativo + 1200, 2);
+    expect(con.precio_final_ars).toBeCloseTo(sin.precio_final_ars + 1200 * 1.6, 1);
+  });
+});

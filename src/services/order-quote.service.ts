@@ -102,6 +102,7 @@ export async function buildOrderQuote(
         units_per_pack,
         is_active,
         deleted_at,
+        has_packaging,
         products (
           id,
           name,
@@ -146,7 +147,8 @@ export async function buildOrderQuote(
       exchange_rate: pricingConfig.exchangeRate,
       rentability_percentage: pricingConfig.markups.minorista,
       taxes,
-      embalaje_cost: pricingConfig.embalageCost
+      embalaje_cost: pricingConfig.embalageCost,
+      packaging_cost: variant.has_packaging ? (pricingConfig.packagingCost ?? 0) : 0
     });
 
     const priceArs = Math.round(pricing.precio_final_ars);
@@ -168,7 +170,8 @@ export async function buildOrderQuote(
       exchange_rate: pricingConfig.exchangeRate,
       rentability_percentage: pricingConfig.markups.minorista,
       taxes,
-      embalaje_cost: pricingConfig.embalageCost
+      embalaje_cost: pricingConfig.embalageCost,
+      packaging_cost: variant.has_packaging ? (pricingConfig.packagingCost ?? 0) : 0
     });
     const priceArsNoDiscount = Math.round(pricingNoDiscount.precio_final_ars);
     if (discountFactor > 1) {

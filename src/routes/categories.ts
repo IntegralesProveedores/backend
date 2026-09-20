@@ -107,17 +107,33 @@ export async function handleCategoryProducts({ env, params, url, request }: Rout
     return errorResponse("Category not found", 404);
   }
 
-  const [{ data: children }, pricingConfig] = await Promise.all([
+  const [{ data: children }, { data: parent }, pricingConfig] = await Promise.all([
     supabase.from("categories").select("id").eq("parent_id", category.id),
+    category.parent_id
+      ? supabase.from("categories").select("id, name, slug").eq("id", category.parent_id).maybeSingle()
+      : Promise.resolve({ data: null }),
     getPricingConfig(env)
   ]);
 
   const categoryIds = [category.id, ...(children ?? []).map((c: any) => c.id)];
 
+  // Filtrar sobre el embed product_categories (sin !inner) no descarta productos:
+  // solo vacía el embed. Por eso se resuelven primero los ids de producto.
+  const { data: links, error: linksError } = await supabase
+    .from("product_categories")
+    .select("product_id")
+    .in("category_id", categoryIds);
+
+  if (linksError) {
+    return errorResponse("Unable to load category products", 500, { supabase_error: linksError.message });
+  }
+
+  const productIds = [...new Set((links ?? []).map((l: any) => l.product_id))];
+
   let productsResult = await supabase
     .from("products")
     .select(PRODUCT_SUMMARY_SELECT, { count: "exact" })
-    .in("product_categories.category_id", categoryIds)
+    .in("id", productIds)
     .eq("active", true)
     .is("deleted_at", null)
     .order("volume_cc", { ascending: true })
@@ -130,8 +146,8 @@ export async function handleCategoryProducts({ env, params, url, request }: Rout
   }
 
   return jsonResponse({
-    category: cleanCategory(category),
-    items: (products ?? []).map((p: any) => cleanProduct(p, pricingConfig.exchangeRate, pricingConfig.markups.minorista, pricingConfig.embalageCost)),
+    category: { ...cleanCategory(category), parent: parent ?? null },
+    items: (products ?? []).map((p: any) => cleanProduct(p, pricingConfig.exchangeRate, pricingConfig.markups.minorista, pricingConfig.embalageCost, 1, [], [], pricingConfig.packagingCost ?? 0)),
     pagination: {
       total: count || 0,
       page,

@@ -20,6 +20,8 @@ export interface PricingInput {
   taxes?: TaxRule[];
   /** Costo fijo de embalaje a aplicar (opcional, fallback a EMBALAJE_COST) */
   embalaje_cost?: number;
+  /** Costo de packaging diferenciado: se suma solo si la presentación lo lleva (default 0) */
+  packaging_cost?: number;
 }
 
 export interface PricingOutput {
@@ -55,6 +57,7 @@ export function calculatePriceV2(input: PricingInput): PricingOutput {
     rentability_percentage,
     taxes = [],
     embalaje_cost = EMBALAJE_COST,
+    packaging_cost = 0,
     cost_currency = 'USD'
   } = input;
 
@@ -88,8 +91,8 @@ export function calculatePriceV2(input: PricingInput): PricingOutput {
   // e. Costo de la presentación (cantidad de unidades solicitadas)
   const costo_presentacion = costo_unitario_computable * presentation_quantity;
 
-  // f. Costo total operativo (Presentación + Embalaje fijo)
-  const costo_total_operativo = costo_presentacion + embalaje_cost;
+  // f. Costo total operativo (Presentación + Embalaje fijo + Packaging si aplica)
+  const costo_total_operativo = costo_presentacion + embalaje_cost + packaging_cost;
 
   // g. Precio de venta final (Aplicando rentabilidad neta)
   const precio_final_ars = costo_total_operativo * (1 + rentability_percentage / 100);

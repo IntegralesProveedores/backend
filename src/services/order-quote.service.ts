@@ -1,7 +1,7 @@
 import { getSupabase } from "./db";
 import { getPricingConfig, getCachedTaxes, getCachedVolumeDiscounts } from "./settings";
 import { calculatePriceV2, TaxRule, round as round2 } from "../lib/pricing";
-import { resolveVolumeDiscountFactor } from "../lib/products";
+import { resolveVolumeDiscountPercentage } from "../lib/products";
 import { ShippingInput } from "../lib/payment-input.validation";
 import { ShippingBox, resolveShippingRate } from "./shipping.service";
 
@@ -18,6 +18,28 @@ export class OrderQuoteError extends Error {
   constructor(message: string) {
     super(message);
     this.name = "OrderQuoteError";
+  }
+}
+
+/** El total calculado ahora no coincide con el que vio el cliente (cambió el dólar, un precio o el envío). */
+export class PriceChangedError extends Error {
+  constructor(readonly currentTotalArs: number, readonly expectedTotalArs: number) {
+    super("Prices changed since the total was shown");
+    this.name = "PriceChangedError";
+  }
+}
+
+/** Diferencia máxima aceptada (en pesos) entre el total mostrado y el calculado. */
+const EXPECTED_TOTAL_TOLERANCE_ARS = 1;
+
+/**
+ * Rechaza la orden si el total que vio el cliente difiere del calculado. Sin
+ * expected_total_ars (frontend viejo) no se valida.
+ */
+export function assertExpectedTotal(expectedTotalArs: number | undefined, currentTotalArs: number): void {
+  if (expectedTotalArs === undefined) return;
+  if (Math.abs(expectedTotalArs - currentTotalArs) > EXPECTED_TOTAL_TOLERANCE_ARS) {
+    throw new PriceChangedError(currentTotalArs, expectedTotalArs);
   }
 }
 
@@ -46,9 +68,13 @@ export interface OrderQuoteItem {
   /** Precio sin descuento por volumen; solo se usa para el desglose
    *  "Subtotal / Descuento" del mail de confirmación de transferencia. */
   price_ars_no_discount: number;
+  /** Precio unitario sin impuestos ("Sin impuestos Nacionales" del resumen y del mail). */
+  price_ars_no_tax: number;
+  /** Primera imagen del producto (ruta relativa o URL), para la miniatura del mail. */
+  image_url: string | null;
   subtotal_ars: number;
   subtotal_usd: number;
-  discount_factor: number;
+  discount_percentage: number;
   // Campos con forma de ítem de preferencia de Mercado Pago, usados por
   // mercadopago-checkout.service.ts al armar la preferencia de pago.
   id: string;
@@ -68,10 +94,14 @@ export interface OrderQuote {
   shippingBoxes: ShippingBox[];
   exchangeRate: number;
   paymentCommissionPercentage: number;
-  /** Insumos para calcular el % de descuento por volumen ponderado que
-   *  muestra el mail de confirmación de transferencia. */
-  volumeDiscountWeightedSum: number;
-  volumeDiscountTotalWeight: number;
+  /** Subtotal a precios de lista (sin descuento por volumen). Con `subtotalArs` da el
+   *  % de descuento real que muestra el mail de confirmación. */
+  subtotalNoDiscountArs: number;
+}
+
+function pickFirstImageUrl(images?: Array<{ image_url: string; position: number }> | null): string | null {
+  if (!images?.length) return null;
+  return [...images].sort((a, b) => a.position - b.position)[0]?.image_url ?? null;
 }
 
 export async function buildOrderQuote(
@@ -89,8 +119,8 @@ export async function buildOrderQuote(
   const quoteItems: OrderQuoteItem[] = [];
   let subtotalArs = 0;
   let subtotalUsd = 0;
-  let volumeDiscountWeightedSum = 0;
-  let volumeDiscountTotalWeight = 0;
+  let subtotalNoDiscountArs = 0;
+  const requestedUnitsByProduct = new Map<string, number>();
 
   for (const item of items) {
     const { data: variant, error } = await supabase
@@ -108,7 +138,9 @@ export async function buildOrderQuote(
           name,
           cost_usd,
           units_per_pack_master,
-          cost_currency
+          cost_currency,
+          stock_units,
+          product_images ( image_url, position )
         )
       `)
       .eq("id", item.variant_id)
@@ -121,11 +153,6 @@ export async function buildOrderQuote(
       throw new OrderQuoteError(`Variant not available: ${variant.sku || item.variant_id}`);
     }
 
-    const stockUnits = Number(variant.stock) || 0;
-    if (stockUnits < item.quantity) {
-      throw new OrderQuoteError(`Insufficient stock for variant: ${variant.sku || item.variant_id}`);
-    }
-
     const product = Array.isArray(variant.products) ? variant.products[0] : variant.products;
     if (!product) {
       throw new OrderQuoteError(`Product not found for variant: ${variant.sku || item.variant_id}`);
@@ -135,9 +162,19 @@ export async function buildOrderQuote(
     const costUsdMaster = Number(product.cost_usd) || 0;
     const unitsPerPackMaster = Number(product.units_per_pack_master) || 1;
     const presentationQuantity = Number(variant.units_per_pack) || 1;
+
+    // El stock vive en products.stock_units (unidades sueltas). Se valida
+    // contra el total pedido del producto, sumando todas sus presentaciones.
+    const productStockUnits = Number(product.stock_units) || 0;
+    const requestedUnits = (requestedUnitsByProduct.get(product.id) ?? 0) + presentationQuantity * item.quantity;
+    if (requestedUnits > productStockUnits) {
+      throw new OrderQuoteError(`Insufficient stock for variant: ${variant.sku || item.variant_id}`);
+    }
+    requestedUnitsByProduct.set(product.id, requestedUnits);
+    const stockUnits = Math.floor(productStockUnits / presentationQuantity);
     const equivalentPacks = (presentationQuantity * item.quantity) / unitsPerPackMaster;
-    const discountFactor = resolveVolumeDiscountFactor(equivalentPacks, volumeDiscounts);
-    const costUsdMasterWithDiscount = round2(costUsdMaster / discountFactor);
+    const discountPercentage = resolveVolumeDiscountPercentage(equivalentPacks, volumeDiscounts);
+    const costUsdMasterWithDiscount = round2(costUsdMaster * (1 - discountPercentage / 100));
 
     const pricing = calculatePriceV2({
       cost_usd_master: costUsdMasterWithDiscount,
@@ -174,10 +211,7 @@ export async function buildOrderQuote(
       packaging_cost: variant.has_packaging ? (pricingConfig.packagingCost ?? 0) : 0
     });
     const priceArsNoDiscount = Math.round(pricingNoDiscount.precio_final_ars);
-    if (discountFactor > 1) {
-      volumeDiscountWeightedSum += (discountFactor - 1) * 100 * itemSubtotalArs;
-      volumeDiscountTotalWeight += itemSubtotalArs;
-    }
+    subtotalNoDiscountArs += priceArsNoDiscount * item.quantity;
 
     quoteItems.push({
       variant_id: variant.id,
@@ -194,9 +228,11 @@ export async function buildOrderQuote(
       price_ars: priceArs,
       price_usd: priceUsd,
       price_ars_no_discount: priceArsNoDiscount,
+      price_ars_no_tax: Math.round(pricing.precio_sin_impuestos_ars),
+      image_url: pickFirstImageUrl((product as { product_images?: Array<{ image_url: string; position: number }> }).product_images),
       subtotal_ars: itemSubtotalArs,
       subtotal_usd: itemSubtotalUsd,
-      discount_factor: discountFactor,
+      discount_percentage: discountPercentage,
       id: variant.id,
       title: productName,
       description: `SKU ${variant.sku}`,
@@ -213,9 +249,13 @@ export async function buildOrderQuote(
   let shippingArs = 0;
   let shippingBoxes: ShippingBox[] = [];
   if (shipping.method === "delivery" && shipping.address?.postal_code) {
-    const shippingResolution = await resolveShippingRate(env, shipping.address.postal_code, productGroups);
-    shippingArs = shippingResolution?.priceArs ?? 0;
-    shippingBoxes = shippingResolution?.boxes ?? [];
+    const shippingResolution = await resolveShippingRate(env, shipping.address.postal_code, productGroups, shipping.address.province);
+    // Sin zona no hay tarifa: antes esto se cobraba como envío gratis ($0).
+    if (!shippingResolution) {
+      throw new OrderQuoteError("Shipping is not available for the postal code provided");
+    }
+    shippingArs = shippingResolution.priceArs;
+    shippingBoxes = shippingResolution.boxes;
   }
 
   return {
@@ -227,7 +267,6 @@ export async function buildOrderQuote(
     shippingBoxes,
     exchangeRate: pricingConfig.exchangeRate,
     paymentCommissionPercentage: pricingConfig.paymentCommissionPercentage,
-    volumeDiscountWeightedSum,
-    volumeDiscountTotalWeight
+    subtotalNoDiscountArs
   };
 }

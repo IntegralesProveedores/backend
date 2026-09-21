@@ -54,6 +54,17 @@ export interface CreatePaymentInput {
   items: PaymentItemInput[];
   customer: PaymentCustomerInput;
   shipping: ShippingInput;
+  /** Total que el cliente vio en pantalla; si difiere del calculado, la orden se rechaza (ver assertExpectedTotal). */
+  expected_total_ars?: number;
+}
+
+/** expected_total_ars es opcional (un frontend viejo no lo manda); si viene, tiene que ser un número finito >= 0. */
+export function parseExpectedTotal(value: unknown): number | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {
+    throw new PaymentInputError("expected_total_ars must be a non-negative number");
+  }
+  return value;
 }
 
 export const isValidEmail = (value: unknown): value is string => {
@@ -83,7 +94,8 @@ export function parseCreatePaymentInput(value: unknown): CreatePaymentInput {
       codigoArea: String(customerRecord.codigoArea ?? "").trim(),
       celular: String(customerRecord.celular ?? "").trim()
     },
-    shipping: parseShippingInput(record.shipping)
+    shipping: parseShippingInput(record.shipping),
+    expected_total_ars: parseExpectedTotal(record.expected_total_ars)
   };
 }
 

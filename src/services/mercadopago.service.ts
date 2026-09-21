@@ -42,6 +42,15 @@ export class MercadoPagoService {
     });
   }
 
+  /** true si Mercado Pago tiene algún pago aprobado para esa external_reference. */
+  async hasApprovedPayment(externalReference: string): Promise<boolean> {
+    const payload = await this.request<{ results?: Array<{ status?: string }> }>(
+      `/v1/payments/search?external_reference=${encodeURIComponent(externalReference)}&status=approved&limit=1`,
+      { method: "GET" }
+    );
+    return (payload.results?.length ?? 0) > 0;
+  }
+
   async validateWebhookSignature(
     xSignature: string | null,
     xRequestId: string | null,
@@ -97,7 +106,6 @@ export class MercadoPagoService {
       console.error(JSON.stringify({
         event: "mp_signature_mismatch",
         template,
-        expected_hash: expected,
         received_hash: signature.value,
         has_secret: !!secret
       }));

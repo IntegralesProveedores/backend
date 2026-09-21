@@ -1,5 +1,5 @@
 import { getSupabase } from "../services/db";
-import { errorResponse, jsonResponse } from "../lib/response";
+import { errorResponse, jsonResponse, priceChangedResponse } from "../lib/response";
 import { calculateOrderCommission } from "../lib/pricing";
 import { createOrderRecord } from "../services/orders.repository";
 import {
@@ -7,12 +7,18 @@ import {
   PaymentInputError,
   validateShippingInput,
   validateCustomerInput,
-  ShippingInput
+  ShippingInput,
+  MAX_ORDER_ITEMS,
+  isValidEmail,
+  parseExpectedTotal
 } from "../lib/payment-input.validation";
-import { buildOrderQuote, OrderQuoteError } from "../services/order-quote.service";
-import { MAX_ORDER_ITEMS, isValidEmail } from "../lib/payment-input.validation";
+import { assertExpectedTotal, buildOrderQuote, OrderQuoteError, PriceChangedError } from "../services/order-quote.service";
 import { sendTransferOrderConfirmationEmail } from "../services/email/order-confirmation-templates";
 import { enforceRateLimit } from "../lib/rate-limit";
+import { verifyTurnstile } from "../lib/turnstile";
+import { readJsonBody } from "../lib/request";
+
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 type OrderItemInput = {
   variant_id: string;
@@ -31,7 +37,9 @@ type OrderBody = {
   items?: OrderItemInput[];
   customer?: OrderCustomerInput;
   shipping?: unknown;
-  payment_method?: 'mercadopago' | 'transferencia';
+  payment_method?: string;
+  turnstile_token?: string;
+  expected_total_ars?: unknown;
 };
 
 export async function handleCreateOrder({ request, env }: { request: Request; env: any }) {
@@ -39,7 +47,18 @@ export async function handleCreateOrder({ request, env }: { request: Request; en
   if (limited) return limited;
 
   try {
-    const body = await request.json() as OrderBody;
+    const body = await readJsonBody(request) as OrderBody | null;
+    if (!body || typeof body !== "object") return errorResponse("Invalid JSON body", 400);
+
+    // Este endpoint es solo para transferencia. Mercado Pago pasa por
+    // /payments/create; aceptarlo acá dejaba órdenes "pending" sin pago ni stock.
+    if (body.payment_method !== "transferencia") {
+      return errorResponse("payment_method must be 'transferencia'; use /payments/create for Mercado Pago", 400);
+    }
+
+    const captchaFailure = await verifyTurnstile(env, request, body?.turnstile_token);
+    if (captchaFailure) return captchaFailure;
+
     const items = body?.items;
     const customer = body?.customer;
     let shipping: ShippingInput;
@@ -80,12 +99,20 @@ export async function handleCreateOrder({ request, env }: { request: Request; en
       throw error;
     }
 
-    const paymentMethod = body.payment_method === 'transferencia' ? 'transferencia' : 'mercadopago';
+    const paymentMethod = body.payment_method;
     const commission = calculateOrderCommission(quote.subtotalArs, quote.shippingArs, paymentMethod, quote.paymentCommissionPercentage);
+
+    try {
+      assertExpectedTotal(parseExpectedTotal(body.expected_total_ars), commission.totalConComision);
+    } catch (error) {
+      if (error instanceof PriceChangedError) return priceChangedResponse(error.currentTotalArs, error.expectedTotalArs);
+      if (error instanceof PaymentInputError) return errorResponse(error.message, 400);
+      throw error;
+    }
 
     const orderRef = crypto.randomUUID();
 
-    await createOrderRecord(
+    const order = await createOrderRecord(
       env,
       customer,
       quote.items.map(item => ({
@@ -101,19 +128,30 @@ export async function handleCreateOrder({ request, env }: { request: Request; en
       quote.subtotalArs,
       quote.exchangeRate,
       orderRef,
-      "manual",
       shipping,
+      quote.shippingArs,
       paymentMethod,
       commission.paymentCommissionPercentage,
       commission.paymentCommissionAmount
     );
 
     if (paymentMethod === "transferencia") {
+      // El stock se descuenta al confirmar el pedido (no al acreditarse la
+      // transferencia). decrement_order_stock es atómica e idempotente
+      // (orders.stock_decremented_at); si no alcanza el stock, se revierte
+      // la orden y no se manda el mail.
+      const supabase = getSupabase(env);
+      const { error: stockError } = await supabase.rpc("decrement_order_stock", { p_order_id: order.id });
+      if (stockError) {
+        await supabase.from("orders").delete().eq("id", order.id);
+        return errorResponse("Insufficient stock to complete the order", 409, { supabase_error: stockError.message });
+      }
+
       const ivaTax = quote.taxes.find(t => t.name.toUpperCase() === "IVA");
       const vatLabel = ivaTax?.is_computable ? "IVA Incluido" : "IVA no incluido";
-      const volumeDiscountPercentage = quote.volumeDiscountTotalWeight === 0
+      const volumeDiscountPercentage = quote.subtotalNoDiscountArs <= 0
         ? 0
-        : Math.round(quote.volumeDiscountWeightedSum / quote.volumeDiscountTotalWeight);
+        : Math.max(0, Math.round((1 - quote.subtotalArs / quote.subtotalNoDiscountArs) * 100));
 
       await sendTransferOrderConfirmationEmail(env, {
         orderRef,
@@ -124,7 +162,9 @@ export async function handleCreateOrder({ request, env }: { request: Request; en
           quantity: item.quantity,
           units_per_pack: item.units_per_pack,
           subtotal_ars: item.subtotal_ars,
-          price_ars_no_discount: item.price_ars_no_discount
+          price_ars_no_discount: item.price_ars_no_discount,
+          price_ars_no_tax: item.price_ars_no_tax,
+          image_url: item.image_url
         })),
         shipping,
         shippingAmountArs: quote.shippingArs,
@@ -132,7 +172,9 @@ export async function handleCreateOrder({ request, env }: { request: Request; en
         totalArs: commission.totalConComision,
         volumeDiscountPercentage,
         vatLabel,
-        paymentCommissionPercentage: commission.paymentCommissionPercentage
+        // El resumen del checkout muestra el % de comisión de MP que se ahorra
+        // pagando por transferencia; la comisión efectiva de esta orden es 0.
+        transferSavingsPercentage: quote.paymentCommissionPercentage
       });
     }
 
@@ -159,7 +201,8 @@ export async function handleCreateOrder({ request, env }: { request: Request; en
       })),
       total_ars: commission.totalConComision,
       shipping_ars: quote.shippingArs,
-      total_usd: quote.subtotalUsd,
+      // Total real (productos + envío + comisión) en USD; antes era solo el subtotal de productos.
+      total_usd: Math.round((commission.totalConComision / quote.exchangeRate + Number.EPSILON) * 100) / 100,
       exchange_rate: quote.exchangeRate,
       order_ref: orderRef,
       payment_method: paymentMethod,
@@ -191,6 +234,7 @@ export async function handleGetOrder({ env, params, request }: { env: any; param
   if (limited) return limited;
 
   const orderId = params.id;
+  if (!UUID_REGEX.test(orderId)) return errorResponse("Invalid order id", 400);
   const supabase = getSupabase(env);
   const [orderResult, itemsResult] = await Promise.all([
     supabase

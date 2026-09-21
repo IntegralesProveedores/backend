@@ -3,6 +3,7 @@ import { PaymentCustomerInput } from "../../lib/payment-input.validation";
 import { MercadoPagoPaymentResponse } from "../../lib/mercadopago.types";
 import { ShippingBox, resolveShippingRate } from "../shipping.service";
 import { ShippingInput } from "../../lib/payment-input.validation";
+import { getCachedTaxes } from "../settings";
 
 // ─────────────────────────────────────────────────────────────
 // QUÉ HACE: Los dos generadores de mail de confirmación de orden
@@ -10,6 +11,10 @@ import { ShippingInput } from "../../lib/payment-input.validation";
 //           que comparten.
 // POR QUÉ:  Antes vivían mezclados dentro de payment.service.ts junto
 //           con persistencia de órdenes, envío y checkout de MP.
+// CUIDADO:  El cuerpo del mail replica app-order-summary (frontend):
+//           mismos bloques, mismo orden, mismas jerarquías y mismo
+//           formato de montos. Si cambia el resumen del checkout, hay que
+//           reflejarlo acá (ver buildSummaryBlocks).
 // ─────────────────────────────────────────────────────────────
 
 export interface TransferOrderEmailItem {
@@ -19,6 +24,8 @@ export interface TransferOrderEmailItem {
   units_per_pack: number;
   subtotal_ars: number;
   price_ars_no_discount: number;
+  price_ars_no_tax: number;
+  image_url: string | null;
 }
 
 export interface TransferOrderEmailInput {
@@ -31,7 +38,8 @@ export interface TransferOrderEmailInput {
   totalArs: number;
   volumeDiscountPercentage: number;
   vatLabel: string;
-  paymentCommissionPercentage: number;
+  /** % de comisión de Mercado Pago que el cliente se ahorra al pagar por transferencia (como en el resumen del checkout). */
+  transferSavingsPercentage: number;
 }
 
 interface OrderConfirmationOrderRow {
@@ -39,12 +47,19 @@ interface OrderConfirmationOrderRow {
   total_amount: number | string;
   subtotal_amount: number | string;
   shipping_amount: number | string;
-  exchange_rate_used: number | string;
+  payment_commission_percentage: number | string | null;
+  payment_commission_amount: number | string | null;
+}
+
+interface OrderConfirmationProductImageRow {
+  image_url: string;
+  position: number;
 }
 
 interface OrderConfirmationProductRow {
   id: string;
   name: string;
+  product_images: OrderConfirmationProductImageRow[] | null;
 }
 
 interface OrderConfirmationVariantRow {
@@ -89,15 +104,15 @@ const escapeHtmlForEmail = (value: unknown): string => String(value ?? "")
   .replace(/"/g, "&quot;")
   .replace(/'/g, "&#39;");
 
-const formatArsAmount = (value: number | string): string =>
-  Number(value || 0).toLocaleString("es-AR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+/** Mismo formato que el pipe currencyArs del frontend: "$ 1.438.600" (sin decimales). */
+const formatArs = (value: number | string): string =>
+  `$ ${Math.round(Number(value || 0)).toLocaleString("es-AR", { maximumFractionDigits: 0 })}`;
 
 /**
  * Paleta y jerarquía tomadas de app-order-summary (frontend), la misma
- * referencia visual del checkout: título de bloque en --color-text-primary,
- * labels en --color-text-muted, valores en --color-text-secondary, monto
- * destacado en --color-primary (naranja). Ver frontend/src/styles/tokens.css
- * y frontend/src/app/shared/components/order-summary/*.
+ * referencia visual del checkout: rótulos de bloque en mayúsculas con la
+ * fuente de títulos, montos y nombres de producto en verde (--color-title),
+ * textos secundarios en --color-text-muted. Ver frontend/src/styles/tokens.css.
  *
  * Los mails arman todo con tablas + estilos inline (nada de flexbox/grid/
  * variables CSS/clases externas) porque Outlook y otros clientes de correo
@@ -105,22 +120,26 @@ const formatArsAmount = (value: number | string): string =>
  */
 const EMAIL_COLORS = {
   title: "#2b3033",
+  green: "#2e5a36",
   label: "#7a8178",
   value: "#5c6468",
   accent: "#e07b39",
   cardBg: "#ffffff",
   pageBg: "#fff4dc",
-  wrapperBg: "#f4f4f4"
+  wrapperBg: "#f4f4f4",
+  divider: "#eeeeee"
 };
 
 /** Único lugar donde configurar el remitente de los mails de confirmación. */
 const EMAIL_FROM = "\"Brotalia\" <ventas@brotalia.com.ar>";
 
 /**
- * Fuente para títulos de bloque y montos finales, sin depender de webfonts
- * (los clientes de correo no las cargan de forma confiable).
+ * Dos familias en todo el mail, como en el sitio (Oswald para títulos/montos,
+ * Inter para texto), sin depender de webfonts (los clientes de correo no las
+ * cargan de forma confiable). No se usa ninguna otra (nada de monoespaciada).
  */
-const EMAIL_FONT_IMPACT = "Impact,'Arial Narrow Bold','Arial Black',sans-serif";
+const FONT_HEADING = "Impact,'Arial Narrow Bold','Arial Black',sans-serif";
+const FONT_BODY = "Arial,Helvetica,sans-serif";
 
 /**
  * https://wa.me/5491130226565 es el link de WhatsApp del negocio ya usado en
@@ -142,26 +161,80 @@ function formatCustomerPhone(areaCode: string | null | undefined, localNumber: s
   return [areaCode, localNumber].filter(Boolean).join(" ");
 }
 
-/** "Tarjeta" blanca con título en mayúsculas, estilo de bloque de app-order-summary. */
-function emailBlockHtml(title: string, bodyHtml: string, subtitle?: string): string {
-  return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="width:100%;background-color:${EMAIL_COLORS.cardBg};border-radius:12px;">
-    <tr><td style="padding:16px 18px;font-family:Arial,sans-serif;">
-      <div style="font-family:${EMAIL_FONT_IMPACT};font-size:16px;color:${EMAIL_COLORS.title};text-transform:uppercase;letter-spacing:.03em;">${title}${subtitle ? ` <span style="font-family:Arial,sans-serif;font-weight:normal;text-transform:none;color:${EMAIL_COLORS.label};font-size:12px;">— ${subtitle}</span>` : ""}</div>
-      <div style="height:10px;line-height:10px;font-size:1px;">&nbsp;</div>
-      ${bodyHtml}
-    </td></tr>
-  </table>
-  <div style="height:10px;line-height:10px;font-size:1px;">&nbsp;</div>`;
+/**
+ * Rango estimado de entrega, misma regla que getEstimatedDeliveryRange del
+ * frontend (2 a 5 días hábiles, sin feriados), calculado en hora argentina.
+ */
+function estimatedDeliveryLabel(now: Date = new Date(), minDays = 2, maxDays = 5): string {
+  const argentinaNow = new Date(now.toLocaleString("en-US", { timeZone: "America/Argentina/Buenos_Aires" }));
+  const addBusinessDays = (days: number): Date => {
+    const result = new Date(argentinaNow);
+    let remaining = days;
+    while (remaining > 0) {
+      result.setDate(result.getDate() + 1);
+      const dayOfWeek = result.getDay();
+      if (dayOfWeek !== 0 && dayOfWeek !== 6) remaining--;
+    }
+    return result;
+  };
+  const start = addBusinessDays(minDays);
+  const end = addBusinessDays(maxDays);
+  const dayAndMonth = (date: Date) => date.toLocaleDateString("es-AR", { day: "numeric", month: "long" });
+  const startLabel = start.getMonth() === end.getMonth() ? String(start.getDate()) : dayAndMonth(start);
+  return `Entre el ${startLabel} y el ${dayAndMonth(end)}`;
 }
 
-/** Fila label/valor dentro de un bloque. mono=true para datos para copiar a mano (alias, CVU, etc). */
-function emailFieldRowHtml(label: string, valueHtml: string, options?: { mono?: boolean; bold?: boolean; valueColor?: string }): string {
-  const fontFamily = options?.mono ? "'Courier New',Consolas,monospace" : "Arial,sans-serif";
+/** Miniatura del producto: misma variante "-thumb" del sitio, con URL absoluta. */
+function emailThumbUrl(env: Env, imageUrl: string | null | undefined): string | null {
+  if (!imageUrl) return null;
+  if (!imageUrl.startsWith("/assets/images/")) return imageUrl;
+  const thumb = imageUrl.replace(/\.(webp|jpe?g|png)$/i, "-thumb.webp");
+  return `${env.APP_BASE_URL.replace(/\/$/, "")}${thumb}`;
+}
+
+// ---------- Piezas visuales (equivalentes a h6 / data / small del resumen) ----------
+
+const SPACER = `<div style="height:10px;line-height:10px;font-size:1px;">&nbsp;</div>`;
+
+/** Rótulo de bloque (h6 del resumen): fuente de títulos, mayúsculas. */
+function labelHtml(text: string): string {
+  return `<span style="font-family:${FONT_HEADING};font-size:15px;color:${EMAIL_COLORS.title};text-transform:uppercase;letter-spacing:.03em;">${text}</span>`;
+}
+
+/** Monto (data del resumen): fuente de títulos en verde. */
+function amountHtml(text: string, size = 18): string {
+  return `<span style="font-family:${FONT_HEADING};font-size:${size}px;color:${EMAIL_COLORS.green};">${text}</span>`;
+}
+
+/** Texto chico y apagado (small del resumen). */
+function smallHtml(text: string): string {
+  return `<span style="font-family:${FONT_BODY};font-size:12px;color:${EMAIL_COLORS.label};">${text}</span>`;
+}
+
+/** Tarjeta blanca (section del resumen). */
+function cardHtml(innerHtml: string): string {
+  return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="width:100%;background-color:${EMAIL_COLORS.cardBg};border-radius:12px;">
+    <tr><td style="padding:12px 16px;font-family:${FONT_BODY};">${innerHtml}</td></tr>
+  </table>${SPACER}`;
+}
+
+/** Fila izquierda/derecha (summary-row del resumen). */
+function rowHtml(leftHtml: string, rightHtml: string, options?: { topDivider?: boolean; padding?: string }): string {
+  const border = options?.topDivider ? `border-top:1px solid ${EMAIL_COLORS.divider};` : "";
+  const padding = options?.padding ?? "4px 0";
+  return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="${border}"><tr>
+    <td style="padding:${padding};vertical-align:top;text-align:left;">${leftHtml}</td>
+    <td style="padding:${padding};vertical-align:top;text-align:right;">${rightHtml}</td>
+  </tr></table>`;
+}
+
+/** Fila label/valor de datos de contacto, dirección y cuenta bancaria. Misma fuente que el resto. */
+function emailFieldRowHtml(label: string, valueHtml: string, options?: { bold?: boolean; valueColor?: string }): string {
   const fontWeight = options?.bold ? "bold" : "normal";
   const color = options?.valueColor ?? EMAIL_COLORS.value;
   return `<tr>
-    <td style="padding:4px 6px 4px 0;font-family:Arial,sans-serif;font-size:13px;color:${EMAIL_COLORS.label};vertical-align:top;width:40%;">${label}</td>
-    <td style="padding:4px 0;font-family:${fontFamily};font-size:13px;color:${color};font-weight:${fontWeight};text-align:right;">${valueHtml}</td>
+    <td style="padding:3px 6px 3px 0;font-family:${FONT_BODY};font-size:13px;color:${EMAIL_COLORS.label};vertical-align:top;width:40%;">${label}</td>
+    <td style="padding:3px 0;font-family:${FONT_BODY};font-size:13px;color:${color};font-weight:${fontWeight};text-align:right;">${valueHtml}</td>
   </tr>`;
 }
 
@@ -169,17 +242,24 @@ function emailFieldsTableHtml(rowsHtml: string): string {
   return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">${rowsHtml}</table>`;
 }
 
+/** Tarjeta con rótulo y filas label/valor (Datos personales). */
+function emailBlockHtml(title: string, bodyHtml: string): string {
+  return cardHtml(`${labelHtml(title)}
+      <div style="height:6px;line-height:6px;font-size:1px;">&nbsp;</div>
+      ${bodyHtml}`);
+}
+
 function buildEmailHeaderHtml(orderLabel: string, logoUrl: string): string {
-  return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr><td style="text-align:center;padding-bottom:16px;font-family:Arial,sans-serif;">
+  return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr><td style="text-align:center;padding-bottom:16px;font-family:${FONT_BODY};">
     <img src="${logoUrl}" alt="Brotalia" width="120" style="width:120px;max-width:120px;height:auto;margin-bottom:12px;">
-    <div style="font-family:${EMAIL_FONT_IMPACT};font-size:22px;color:${EMAIL_COLORS.title};letter-spacing:.02em;">DETALLE DEL PEDIDO</div>
+    <div style="font-family:${FONT_HEADING};font-size:22px;color:${EMAIL_COLORS.title};letter-spacing:.02em;">DETALLE DEL PEDIDO</div>
     <div style="font-size:12px;color:${EMAIL_COLORS.label};margin-top:4px;">${orderLabel}</div>
   </td></tr></table>`;
 }
 
 function buildEmailFooterHtml(): string {
   return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:${EMAIL_COLORS.cardBg};border-radius:12px;">
-    <tr><td style="padding:16px 18px;text-align:center;font-family:Arial,sans-serif;">
+    <tr><td style="padding:16px 18px;text-align:center;font-family:${FONT_BODY};">
       <div style="color:${EMAIL_COLORS.accent};font-weight:bold;font-size:14px;">¡Gracias por tu compra!</div>
     </td></tr>
   </table>`;
@@ -199,17 +279,14 @@ function buildEmailWrapperHtml(headerHtml: string, blocksHtml: string, footerHtm
   </table>`;
 }
 
-function buildEmbalajeSection(shippingBoxes: ShippingBox[]): { html: string; textLines: string[] } {
-  const html = shippingBoxes.length
-    ? `<div style="margin-top:10px;padding-top:10px;border-top:1px solid #f2f2f2;">
-        <div style="font-size:12px;color:${EMAIL_COLORS.label};margin-bottom:4px;">Embalaje</div>
-        ${emailFieldsTableHtml(shippingBoxes.map(b => emailFieldRowHtml(`${b.count} x ${escapeHtmlForEmail(b.boxModelName)}`, `${b.widthCm} x ${b.lengthCm} x ${b.heightCm} cm`)).join(""))}
-      </div>`
-    : "";
-  const textLines = shippingBoxes.length
-    ? ["", "Embalaje:", ...shippingBoxes.map(b => `- ${b.count} x ${b.boxModelName} (${b.widthCm} x ${b.lengthCm} x ${b.heightCm} cm)`)]
-    : [];
-  return { html, textLines };
+// ---------- Resumen del pedido (réplica de app-order-summary) ----------
+
+interface SummaryItem {
+  name: string;
+  totalUnits: number;
+  /** Subtotal que se muestra en la línea (en el resumen: a precio de lista, sin descuento). */
+  subtotalArs: number;
+  imageUrl: string | null;
 }
 
 interface EntregaAddressInput {
@@ -224,89 +301,267 @@ interface EntregaAddressInput {
   postal_code: string | null;
 }
 
-interface EntregaBlockInput {
-  method: "pickup" | "delivery" | "coordinar" | null;
-  address: EntregaAddressInput | null;
-  shippingAmountArs: number;
+interface SummaryModel {
+  items: SummaryItem[];
+  /** Solo si se conoce el subtotal a precio de lista: habilita las filas Subtotal / Descuento. */
+  subtotalNoDiscountArs: number | null;
+  volumeDiscountPercentage: number;
+  /** Fila "Productos": subtotal ya descontado, sin envío. */
+  productsTotalArs: number;
+  /** "Sin impuestos Nacionales"; null si no está disponible. */
+  subtotalNoTaxArs: number | null;
+  vatLabel: string;
   shippingBoxes: ShippingBox[];
-  customerPhone: string;
-  customerWaUrl: string | null;
+  entrega: {
+    method: "pickup" | "delivery" | "coordinar" | null;
+    address: EntregaAddressInput | null;
+    shippingAmountArs: number;
+    customerPhone: string;
+    customerWaUrl: string | null;
+  };
+  pago: {
+    /** Medio de pago, ej. "Transferencia bancaria" o "Mercado Pago". */
+    methodLabel: string;
+    /** Descuento por pagar con transferencia (fila "Pago Transferencia  −10%"). */
+    transferDiscountPercentage: number;
+    detailsHtml: string;
+    detailsText: string[];
+  };
+  /** Comisión de Mercado Pago, si hubo. */
+  commission: { percentage: number; amountArs: number } | null;
+  totalArs: number;
+}
+
+/** Bloque "Productos": miniatura, nombre, unidades y subtotal por línea + desglose + total de productos. */
+function buildItemsCard(env: Env, model: SummaryModel): { html: string; text: string[] } {
+  const linesHtml = model.items.map((item, index) => {
+    const thumb = emailThumbUrl(env, item.imageUrl);
+    const border = index > 0 ? `border-top:1px solid ${EMAIL_COLORS.divider};` : "";
+    return `<tr>
+      <td width="44" style="width:44px;padding:5px 8px 5px 0;vertical-align:middle;${border}">${thumb ? `<img src="${escapeHtmlForEmail(thumb)}" alt="${escapeHtmlForEmail(item.name)}" width="36" height="36" style="display:block;width:36px;height:36px;border-radius:4px;object-fit:cover;">` : ""}</td>
+      <td style="padding:5px 0;vertical-align:middle;${border}">
+        <div style="font-family:${FONT_HEADING};font-size:15px;color:${EMAIL_COLORS.green};text-transform:uppercase;line-height:1.1;">${escapeHtmlForEmail(item.name)}</div>
+        ${smallHtml(`${item.totalUnits} u.`)}
+      </td>
+      <td style="padding:5px 0;vertical-align:middle;text-align:right;font-family:${FONT_BODY};font-size:16px;font-weight:bold;color:${EMAIL_COLORS.title};white-space:nowrap;${border}">${formatArs(item.subtotalArs)}</td>
+    </tr>`;
+  }).join("");
+
+  const hasDiscountRows = model.subtotalNoDiscountArs !== null && model.volumeDiscountPercentage > 0;
+  const discountHtml = hasDiscountRows
+    ? `${rowHtml(labelHtml("Subtotal"), amountHtml(formatArs(model.subtotalNoDiscountArs ?? 0)))}
+       ${rowHtml(labelHtml("Descuento"), amountHtml(`&minus;${model.volumeDiscountPercentage}%`))}`
+    : "";
+
+  const productsNotes = [
+    smallHtml(escapeHtmlForEmail(model.vatLabel)),
+    ...(model.subtotalNoTaxArs !== null ? [smallHtml(`Sin impuestos Nacionales: ${formatArs(model.subtotalNoTaxArs)}`)] : [])
+  ].join("<br>");
+
+  const html = cardHtml(`<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">${linesHtml}</table>
+    <div style="height:6px;line-height:6px;font-size:1px;">&nbsp;</div>
+    ${discountHtml}
+    ${rowHtml(labelHtml("Productos"), `${amountHtml(formatArs(model.productsTotalArs))}<br>${productsNotes}`, { topDivider: true, padding: "8px 0 2px" })}`);
+
+  const text = [
+    "PRODUCTOS",
+    ...model.items.map(item => `- ${item.name} (${item.totalUnits} u.): ${formatArs(item.subtotalArs)}`),
+    ...(hasDiscountRows ? [`Subtotal: ${formatArs(model.subtotalNoDiscountArs ?? 0)}`, `Descuento: -${model.volumeDiscountPercentage}%`] : []),
+    `Productos: ${formatArs(model.productsTotalArs)} (${model.vatLabel})`,
+    ...(model.subtotalNoTaxArs !== null ? [`Sin impuestos Nacionales: ${formatArs(model.subtotalNoTaxArs)}`] : [])
+  ];
+  return { html, text };
+}
+
+/** Bloque "Embalaje": cantidad x modelo de caja y sus medidas. */
+function buildPackagingCard(shippingBoxes: ShippingBox[]): { html: string; text: string[] } {
+  if (!shippingBoxes.length) return { html: "", text: [] };
+  const rows = shippingBoxes.map(b => rowHtml(
+    `<span style="font-family:${FONT_BODY};font-size:13px;font-weight:bold;color:${EMAIL_COLORS.title};">${b.count} x ${escapeHtmlForEmail(b.boxModelName)}</span>`,
+    `<span style="font-family:${FONT_BODY};font-size:12px;color:${EMAIL_COLORS.value};">${b.widthCm} &times; ${b.lengthCm} &times; ${b.heightCm} cm.</span>`,
+    { padding: "2px 0" }
+  )).join("");
+  return {
+    html: cardHtml(`${labelHtml("Embalaje")}
+      <div style="height:4px;line-height:4px;font-size:1px;">&nbsp;</div>
+      ${rows}`),
+    text: ["EMBALAJE", ...shippingBoxes.map(b => `- ${b.count} x ${b.boxModelName} (${b.widthCm} x ${b.lengthCm} x ${b.heightCm} cm)`)]
+  };
 }
 
 /**
- * Bloque "Entrega", compartido entre el mail de confirmación de
- * transferencia y el de Mercado Pago: mismas 3 ramas (coordinar / pickup /
- * delivery), mismo copy y misma tabla de campos + embalaje.
+ * Bloque "Entrega": rótulo + fechas a la izquierda y costo a la derecha (como
+ * el resumen), y debajo el detalle (dirección / retiro / coordinar) que el
+ * resumen no muestra pero el cliente necesita en el comprobante.
  */
-function buildEntregaBlock(input: EntregaBlockInput): { html: string; text: string } {
-  const embalaje = buildEmbalajeSection(input.shippingBoxes);
-  let bodyHtml: string;
-  let textLines: string[];
+function buildEntregaCard(entrega: SummaryModel["entrega"]): { html: string; text: string[] } {
+  const isDelivery = entrega.method === "delivery" && !!entrega.address;
+  const rightHtml = isDelivery
+    ? (entrega.shippingAmountArs > 0 ? amountHtml(formatArs(entrega.shippingAmountArs)) : amountHtml("A confirmar"))
+    : amountHtml(entrega.method === "coordinar" ? "Coordinar" : "Retiro");
+  const rightText = isDelivery
+    ? (entrega.shippingAmountArs > 0 ? formatArs(entrega.shippingAmountArs) : "A confirmar")
+    : (entrega.method === "coordinar" ? "Coordinar" : "Retiro");
+  const deliveryDates = isDelivery ? estimatedDeliveryLabel() : "";
 
-  if (input.method === "coordinar") {
-    bodyHtml = `<p style="margin:0 0 8px;font-size:13px;color:${EMAIL_COLORS.value};line-height:1.5;">Coordinamos el método de envío (transporte, micro o expreso), el costo y los tiempos según tu localidad por WhatsApp.</p>
-      <p style="margin:0;font-size:13px;"><a href="${BUSINESS_WHATSAPP_URL}" style="color:${EMAIL_COLORS.accent};font-weight:bold;text-decoration:none;">💬 Escribinos por WhatsApp: +54 9 11 3022-6565</a></p>`;
-    textLines = [
+  let detailsHtml: string;
+  let detailsText: string[];
+
+  if (entrega.method === "coordinar") {
+    detailsHtml = `<p style="margin:0 0 6px;font-family:${FONT_BODY};font-size:13px;color:${EMAIL_COLORS.value};line-height:1.5;">Coordinamos el método de envío (transporte, micro o expreso), el costo y los tiempos según tu localidad por WhatsApp.</p>
+      <p style="margin:0;font-family:${FONT_BODY};font-size:13px;"><a href="${BUSINESS_WHATSAPP_URL}" style="color:${EMAIL_COLORS.accent};font-weight:bold;text-decoration:none;">Escribinos por WhatsApp: +54 9 11 3022-6565</a></p>`;
+    detailsText = [
       "Coordinamos el envío (transporte, micro o expreso), costo y tiempos por WhatsApp.",
       `WhatsApp: ${BUSINESS_WHATSAPP_URL}`
     ];
-  } else if (input.method === "pickup" || !input.address) {
-    bodyHtml = `<p style="margin:0 0 8px;font-size:13px;color:${EMAIL_COLORS.value};line-height:1.5;">Retiro en <strong>Portela 875, Flores, CABA</strong> o <strong>Roosevelt 1935, Belgrano, CABA</strong>, según disponibilidad. Coordiná día y horario por WhatsApp.</p>
-      <p style="margin:0;font-size:13px;"><a href="${BUSINESS_WHATSAPP_URL}" style="color:${EMAIL_COLORS.accent};font-weight:bold;text-decoration:none;">📦 Escribinos por WhatsApp: +54 9 11 3022-6565</a></p>`;
-    textLines = [
+  } else if (!isDelivery) {
+    detailsHtml = `<p style="margin:0 0 6px;font-family:${FONT_BODY};font-size:13px;color:${EMAIL_COLORS.value};line-height:1.5;">Retiro en <strong>Portela 875, Flores, CABA</strong> o <strong>Roosevelt 1935, Belgrano, CABA</strong>, según disponibilidad. Coordiná día y horario por WhatsApp.</p>
+      <p style="margin:0;font-family:${FONT_BODY};font-size:13px;"><a href="${BUSINESS_WHATSAPP_URL}" style="color:${EMAIL_COLORS.accent};font-weight:bold;text-decoration:none;">Escribinos por WhatsApp: +54 9 11 3022-6565</a></p>`;
+    detailsText = [
       "Retiro en Portela 875, Flores, CABA o Roosevelt 1935, Belgrano, CABA (coordinar día y horario).",
       `WhatsApp: ${BUSINESS_WHATSAPP_URL}`
     ];
   } else {
-    const address = input.address;
+    const address = entrega.address as EntregaAddressInput;
     const direccionCompleta = [
       `${escapeHtmlForEmail(address.street)} ${escapeHtmlForEmail(address.street_number)}`,
       address.floor ? `Piso ${escapeHtmlForEmail(address.floor)}` : null,
       address.apartment ? `Depto ${escapeHtmlForEmail(address.apartment)}` : null
     ].filter(Boolean).join(", ");
-    bodyHtml = emailFieldsTableHtml([
+    const localidad = `${escapeHtmlForEmail(address.locality)}${address.county ? ` (${escapeHtmlForEmail(address.county)})` : ""}`;
+    detailsHtml = emailFieldsTableHtml([
       emailFieldRowHtml("Destinatario", escapeHtmlForEmail(address.recipient_name)),
       emailFieldRowHtml("Dirección", direccionCompleta),
-      emailFieldRowHtml("Localidad", `${escapeHtmlForEmail(address.locality)}${address.county ? ` (${escapeHtmlForEmail(address.county)})` : ""}`),
+      emailFieldRowHtml("Localidad", localidad),
       emailFieldRowHtml("Provincia", escapeHtmlForEmail(address.province)),
       emailFieldRowHtml("Código Postal", escapeHtmlForEmail(address.postal_code)),
-      emailFieldRowHtml("Costo de envío", `$${formatArsAmount(input.shippingAmountArs)}`),
-      ...(input.customerWaUrl ? [emailFieldRowHtml("Contacto (WhatsApp)", `<a href="${input.customerWaUrl}" style="color:${EMAIL_COLORS.accent};text-decoration:none;font-weight:bold;">${escapeHtmlForEmail(input.customerPhone)}</a>`)] : [])
-    ].join("")) + embalaje.html;
-    textLines = [
+      ...(entrega.customerWaUrl ? [emailFieldRowHtml("Contacto (WhatsApp)", `<a href="${entrega.customerWaUrl}" style="color:${EMAIL_COLORS.accent};text-decoration:none;font-weight:bold;">${escapeHtmlForEmail(entrega.customerPhone)}</a>`)] : [])
+    ].join(""));
+    detailsText = [
       `Destinatario: ${address.recipient_name ?? ""}`,
       `Dirección: ${direccionCompleta}`,
       `Localidad: ${address.locality ?? ""}${address.county ? ` (${address.county})` : ""}`,
       `Provincia: ${address.province ?? ""}`,
       `Código Postal: ${address.postal_code ?? ""}`,
-      `Costo de envío: $${formatArsAmount(input.shippingAmountArs)}`,
-      ...(input.customerWaUrl ? [`Contacto (WhatsApp): ${input.customerPhone} (${input.customerWaUrl})`] : []),
-      ...embalaje.textLines
+      ...(entrega.customerWaUrl ? [`Contacto (WhatsApp): ${entrega.customerPhone} (${entrega.customerWaUrl})`] : [])
     ];
   }
 
+  const html = cardHtml(`${rowHtml(
+    `${labelHtml("Entrega")}${deliveryDates ? `<br>${smallHtml(deliveryDates)}` : ""}`,
+    rightHtml,
+    { padding: "2px 0" }
+  )}
+    <div style="height:8px;line-height:8px;font-size:1px;">&nbsp;</div>
+    ${detailsHtml}`);
+
   return {
-    html: emailBlockHtml("Entrega", bodyHtml),
-    text: ["ENTREGA", ...textLines].join("\n")
+    html,
+    text: [`ENTREGA: ${rightText}${deliveryDates ? ` (${deliveryDates})` : ""}`, ...detailsText]
   };
 }
 
-/**
- * Fila "TOTAL" + nota destacada al pie del bloque "Totales", compartida
- * entre ambos generadores (monto en acento naranja + nota en gris claro).
- * El estilo de la nota (itálica o no, margen) se pasa por parámetro porque
- * difiere levemente entre el mail de transferencia (IVA incluido/no
- * incluido, en itálica) y el de Mercado Pago (cotización usada, sin
- * itálica) — no queríamos alterar ese detalle visual existente.
- */
-function buildTotalRowHtml(totalArs: number | string, noteHtml: string, noteStyle: string): string {
-  return `<div style="margin-top:10px;padding-top:10px;border-top:1px solid #f2f2f2;">
-    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr>
-      <td style="font-family:${EMAIL_FONT_IMPACT};font-size:16px;color:${EMAIL_COLORS.title};">TOTAL</td>
-      <td style="text-align:right;font-family:${EMAIL_FONT_IMPACT};font-size:22px;color:${EMAIL_COLORS.accent};">$${formatArsAmount(totalArs)}</td>
-    </tr></table>
-    <div style="text-align:right;font-family:Arial,sans-serif;font-size:11px;color:${EMAIL_COLORS.label};${noteStyle}">${noteHtml}</div>
-  </div>`;
+/** Bloque "Pago": medio de pago (y descuento por transferencia) + datos de la cuenta o del pago. */
+function buildPagoCard(pago: SummaryModel["pago"]): { html: string; text: string[] } {
+  const hasTransferDiscount = pago.transferDiscountPercentage > 0;
+  const html = cardHtml(`${rowHtml(
+    `${labelHtml("Pago")}<br>${smallHtml(escapeHtmlForEmail(pago.methodLabel))}`,
+    hasTransferDiscount ? amountHtml(`&minus;${pago.transferDiscountPercentage}%`) : "",
+    { padding: "2px 0" }
+  )}
+    <div style="height:8px;line-height:8px;font-size:1px;">&nbsp;</div>
+    ${pago.detailsHtml}`);
+  return {
+    html,
+    text: [
+      `PAGO: ${pago.methodLabel}${hasTransferDiscount ? ` (-${pago.transferDiscountPercentage}%)` : ""}`,
+      ...pago.detailsText
+    ]
+  };
+}
+
+/** Bloque "Comisión Mercado Pago". */
+function buildCommissionCard(commission: SummaryModel["commission"]): { html: string; text: string[] } {
+  if (!commission || commission.amountArs <= 0) return { html: "", text: [] };
+  return {
+    html: cardHtml(rowHtml(labelHtml(`Comisión Mercado Pago (${commission.percentage}%)`), amountHtml(formatArs(commission.amountArs)), { padding: "2px 0" })),
+    text: [`COMISIÓN MERCADO PAGO (${commission.percentage}%): ${formatArs(commission.amountArs)}`]
+  };
+}
+
+/** Bloque "Total". */
+function buildTotalCard(totalArs: number, vatLabel: string): { html: string; text: string[] } {
+  return {
+    html: cardHtml(rowHtml(
+      labelHtml("Total"),
+      `${amountHtml(formatArs(totalArs), 22)}<br>${smallHtml(escapeHtmlForEmail(vatLabel))}`,
+      { padding: "2px 0" }
+    )),
+    text: [`TOTAL: ${formatArs(totalArs)}`, vatLabel]
+  };
+}
+
+/** Bloques del resumen, en el mismo orden que app-order-summary. */
+function buildSummaryBlocks(env: Env, model: SummaryModel): { html: string; text: string } {
+  const blocks = [
+    buildItemsCard(env, model),
+    buildPackagingCard(model.shippingBoxes),
+    buildEntregaCard(model.entrega),
+    buildPagoCard(model.pago),
+    buildCommissionCard(model.commission),
+    buildTotalCard(model.totalArs, model.vatLabel)
+  ];
+  return {
+    html: blocks.map(block => block.html).join(""),
+    text: blocks.filter(block => block.text.length).map(block => block.text.join("\n")).join("\n\n")
+  };
+}
+
+/** Bloque "Datos personales" (no está en el resumen del checkout, pero va primero en el comprobante). */
+function buildDatosPersonales(fields: { nombre: string; email: string; phone: string; cuit: string | null | undefined }): { html: string; text: string } {
+  const html = emailBlockHtml("Datos personales", emailFieldsTableHtml([
+    emailFieldRowHtml("Nombre", escapeHtmlForEmail(fields.nombre)),
+    emailFieldRowHtml("Email", escapeHtmlForEmail(fields.email)),
+    emailFieldRowHtml("Teléfono", escapeHtmlForEmail(fields.phone)),
+    ...(fields.cuit ? [emailFieldRowHtml("CUIT", escapeHtmlForEmail(fields.cuit))] : [])
+  ].join("")));
+  const text = [
+    "DATOS PERSONALES",
+    `Nombre: ${fields.nombre}`,
+    `Email: ${fields.email}`,
+    `Teléfono: ${fields.phone}`,
+    ...(fields.cuit ? [`CUIT: ${fields.cuit}`] : [])
+  ].join("\n");
+  return { html, text };
+}
+
+function assembleEmail(env: Env, orderLabel: string, datos: { html: string; text: string }, summary: { html: string; text: string }): { html: string; text: string } {
+  const logoUrl = `${env.APP_BASE_URL.replace(/\/$/, "")}/assets/images/brotalia-iso-00.png`;
+  const html = buildEmailWrapperHtml(buildEmailHeaderHtml(orderLabel, logoUrl), `${datos.html}${summary.html}`, buildEmailFooterHtml());
+  const text = ["DETALLE DEL PEDIDO", orderLabel, "", datos.text, "", summary.text, "", "¡Gracias por tu compra!"].join("\n");
+  return { html, text };
+}
+
+async function sendConfirmationEmail(env: Env, payload: { to: string; subject: string; html: string; text: string }): Promise<void> {
+  const response = await fetch("https://api.resend.com/emails", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${env.RESEND_API_KEY}`,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      from: EMAIL_FROM,
+      to: [payload.to],
+      cc: ["integralesproveedores@gmail.com"],
+      subject: payload.subject,
+      html: payload.html,
+      text: payload.text
+    })
+  });
+
+  if (!response.ok) {
+    throw new Error(`Resend request failed with status ${response.status}: ${await response.text()}`);
+  }
 }
 
 /**
@@ -317,9 +572,8 @@ function buildTotalRowHtml(totalArs: number | string, noteHtml: string, noteStyl
  * movió al backend porque Resend no tiene un equivalente de "public key"
  * seguro para el cliente (la API key es un secreto completo).
  *
- * Estructura en 5 bloques (Datos personales / Productos / Entrega / Método
- * de pago / Totales), estilo visual tomado de app-order-summary — ver
- * EMAIL_COLORS más arriba.
+ * Estructura: Datos personales + los bloques de app-order-summary (Productos
+ * / Embalaje / Entrega / Pago / Total), ver buildSummaryBlocks.
  */
 export async function sendTransferOrderConfirmationEmail(env: Env, input: TransferOrderEmailInput): Promise<void> {
   try {
@@ -347,152 +601,87 @@ export async function sendTransferOrderConfirmationEmail(env: Env, input: Transf
       account_holder_tax_id: string;
     }>;
 
-    // ---- Datos personales ----
     const phone = formatCustomerPhone(input.customer.codigoArea, input.customer.celular);
-    const datosPersonalesHtml = emailBlockHtml("Datos personales", emailFieldsTableHtml([
-      emailFieldRowHtml("Nombre", escapeHtmlForEmail(input.customer.nombre)),
-      emailFieldRowHtml("Email", escapeHtmlForEmail(input.customer.email)),
-      emailFieldRowHtml("Teléfono", escapeHtmlForEmail(phone)),
-      ...(input.customer.cuit ? [emailFieldRowHtml("CUIT", escapeHtmlForEmail(input.customer.cuit))] : [])
-    ].join("")));
-    const datosPersonalesText = [
-      "DATOS PERSONALES",
-      `Nombre: ${input.customer.nombre}`,
-      `Email: ${input.customer.email}`,
-      `Teléfono: ${phone}`,
-      ...(input.customer.cuit ? [`CUIT: ${input.customer.cuit}`] : [])
-    ].join("\n");
+    const datos = buildDatosPersonales({
+      nombre: input.customer.nombre,
+      email: input.customer.email,
+      phone,
+      cuit: input.customer.cuit
+    });
 
-    // ---- Productos (mismo agrupado por nombre de siempre) ----
-    const productGroupsByName = new Map<string, { totalUnits: number; subtotal: number; skus: string[] }>();
+    // Productos agrupados por nombre; cada línea muestra el subtotal a precio de lista, como el resumen.
+    const groups = new Map<string, SummaryItem>();
     for (const item of input.items) {
       const units = (item.units_per_pack || 1) * item.quantity;
-      const existing = productGroupsByName.get(item.product_name);
+      const listSubtotal = item.price_ars_no_discount * item.quantity;
+      const existing = groups.get(item.product_name);
       if (existing) {
         existing.totalUnits += units;
-        existing.subtotal += item.subtotal_ars;
-        existing.skus.push(item.sku);
+        existing.subtotalArs += listSubtotal;
       } else {
-        productGroupsByName.set(item.product_name, { totalUnits: units, subtotal: item.subtotal_ars, skus: [item.sku] });
+        groups.set(item.product_name, { name: item.product_name, totalUnits: units, subtotalArs: listSubtotal, imageUrl: item.image_url });
       }
     }
-    const productosTableHtml = `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="font-family:Arial,sans-serif;font-size:13px;">
-      <thead><tr>
-        <th style="text-align:left;padding:6px 0;border-bottom:1px solid #eee;color:${EMAIL_COLORS.label};font-weight:normal;">Producto</th>
-        <th style="text-align:center;padding:6px 0;border-bottom:1px solid #eee;color:${EMAIL_COLORS.label};font-weight:normal;">Unidades</th>
-        <th style="text-align:right;padding:6px 0;border-bottom:1px solid #eee;color:${EMAIL_COLORS.label};font-weight:normal;">Subtotal</th>
-      </tr></thead>
-      <tbody>${Array.from(productGroupsByName.entries()).map(([name, g]) => `<tr>
-        <td style="padding:8px 0;border-bottom:1px solid #f2f2f2;color:${EMAIL_COLORS.title};"><strong>${escapeHtmlForEmail(name)}</strong><br><span style="font-size:11px;color:${EMAIL_COLORS.label};">SKU: ${escapeHtmlForEmail(g.skus.join(", "))}</span></td>
-        <td style="padding:8px 0;border-bottom:1px solid #f2f2f2;text-align:center;color:${EMAIL_COLORS.value};">${g.totalUnits} u.</td>
-        <td style="padding:8px 0;border-bottom:1px solid #f2f2f2;text-align:right;color:${EMAIL_COLORS.value};">$${formatArsAmount(g.subtotal)}</td>
-      </tr>`).join("")}</tbody>
-    </table>`;
-    const productosHtml = emailBlockHtml("Productos", productosTableHtml);
-    const productosText = [
-      "PRODUCTOS",
-      ...Array.from(productGroupsByName.entries()).map(([name, g]) => `- ${name} (SKU ${g.skus.join(", ")}) x${g.totalUnits} u. - Subtotal: $${formatArsAmount(g.subtotal)}`)
-    ].join("\n");
 
-    // ---- Entrega (dirección/retiro/coordinar + WhatsApp del cliente + embalaje) ----
-    const address = input.shipping.address;
-    const customerWaUrl = buildCustomerWhatsAppUrl(input.customer.codigoArea, input.customer.celular);
-    const entrega = buildEntregaBlock({
-      method: input.shipping.method,
-      address: address ?? null,
-      shippingAmountArs: input.shippingAmountArs,
-      shippingBoxes: input.shippingBoxes,
-      customerPhone: phone,
-      customerWaUrl
-    });
-    const entregaHtml = entrega.html;
-    const entregaText = entrega.text;
+    const productsTotalArs = input.items.reduce((sum, item) => sum + item.subtotal_ars, 0);
+    const subtotalNoDiscountArs = input.items.reduce((sum, item) => sum + item.price_ars_no_discount * item.quantity, 0);
+    const subtotalNoTaxArs = input.items.reduce((sum, item) => sum + item.price_ars_no_tax * item.quantity, 0);
 
-    // ---- Método de pago (una sola cuenta: Mercado Pago) ----
-    const cuentaRowsHtml = transferAccounts.map(c => emailFieldsTableHtml([
-      emailFieldRowHtml("Alias", escapeHtmlForEmail(c.alias), { mono: true }),
-      ...(c.cvu ? [emailFieldRowHtml("CVU", escapeHtmlForEmail(c.cvu), { mono: true })] : []),
-      ...(c.cbu ? [emailFieldRowHtml("CBU", escapeHtmlForEmail(c.cbu), { mono: true })] : []),
-      emailFieldRowHtml("Titular", escapeHtmlForEmail(c.account_holder_name), { mono: true }),
-      emailFieldRowHtml("CUIT", escapeHtmlForEmail(c.account_holder_tax_id), { mono: true }),
-      ...(c.account_number ? [emailFieldRowHtml("Cuenta", escapeHtmlForEmail(c.account_number), { mono: true })] : [])
+    // Datos para copiar a mano: misma tipografía que el resto del mail.
+    const cuentaHtml = transferAccounts.map(c => emailFieldsTableHtml([
+      emailFieldRowHtml("Alias", escapeHtmlForEmail(c.alias)),
+      ...(c.cvu ? [emailFieldRowHtml("CVU", escapeHtmlForEmail(c.cvu))] : []),
+      ...(c.cbu ? [emailFieldRowHtml("CBU", escapeHtmlForEmail(c.cbu))] : []),
+      emailFieldRowHtml("Titular", escapeHtmlForEmail(c.account_holder_name)),
+      emailFieldRowHtml("CUIT", escapeHtmlForEmail(c.account_holder_tax_id)),
+      ...(c.account_number ? [emailFieldRowHtml("Cuenta", escapeHtmlForEmail(c.account_number))] : [])
     ].join(""))).join("");
-    const pagoHtml = emailBlockHtml("Método de pago", `${cuentaRowsHtml}
-      <p style="margin:14px 0 0;padding:12px;background-color:#e9f7ef;border-radius:8px;text-align:center;font-family:Arial,sans-serif;font-size:12px;color:#1e7e34;font-weight:bold;">Recibido o acreditado el pago se procesa el pedido. El comprobante podés enviarlo por WhatsApp al +54 9 11 3022-6565.</p>`, "Transferencia bancaria");
-    const pagoText = [
-      "MÉTODO DE PAGO — Transferencia bancaria",
-      ...transferAccounts.flatMap(c => [
-        `Alias: ${c.alias}`,
-        ...(c.cvu ? [`CVU: ${c.cvu}`] : []),
-        ...(c.cbu ? [`CBU: ${c.cbu}`] : []),
-        `Titular: ${c.account_holder_name}`,
-        `CUIT: ${c.account_holder_tax_id}`,
-        ...(c.account_number ? [`Cuenta: ${c.account_number}`] : [])
-      ]),
-      "",
-      "Recibido o acreditado el pago se procesa el pedido. El comprobante podés enviarlo por WhatsApp al +54 9 11 3022-6565."
-    ].join("\n");
+    const avisoPago = "Recibido o acreditado el pago se procesa el pedido. El comprobante podés enviarlo por WhatsApp al +54 9 11 3022-6565.";
 
-    // ---- Totales (mismo cálculo de descuento por volumen de siempre) ----
-    const subtotalSinDescuento = input.items.reduce((sum, item) => sum + item.price_ars_no_discount * item.quantity, 0);
-    const totalesRowsHtml = emailFieldsTableHtml([
-      emailFieldRowHtml("Subtotal", `$${formatArsAmount(subtotalSinDescuento)}`),
-      ...(input.volumeDiscountPercentage > 0 ? [emailFieldRowHtml("Descuento", `-${input.volumeDiscountPercentage}%`, { valueColor: "#1e7e34", bold: true })] : []),
-      ...(input.shippingAmountArs > 0 ? [emailFieldRowHtml("Envío", `$${formatArsAmount(input.shippingAmountArs)}`)] : []),
-      ...(input.paymentCommissionPercentage > 0 ? [emailFieldRowHtml("Transferencia", `-${input.paymentCommissionPercentage}%`, { valueColor: "#1e7e34", bold: true })] : [])
-    ].join(""));
-    const totalesHtml = emailBlockHtml("Totales", `${totalesRowsHtml}
-      ${buildTotalRowHtml(input.totalArs, escapeHtmlForEmail(input.vatLabel), "font-style:italic;margin-top:2px;")}`);
-    const totalesText = [
-      "TOTALES",
-      `Subtotal: $${formatArsAmount(subtotalSinDescuento)}`,
-      ...(input.volumeDiscountPercentage > 0 ? [`Descuento: -${input.volumeDiscountPercentage}%`] : []),
-      ...(input.shippingAmountArs > 0 ? [`Envío: $${formatArsAmount(input.shippingAmountArs)}`] : []),
-      ...(input.paymentCommissionPercentage > 0 ? [`Transferencia: -${input.paymentCommissionPercentage}%`] : []),
-      `TOTAL: $${formatArsAmount(input.totalArs)}`,
-      input.vatLabel
-    ].join("\n");
-
-    // ---- Ensamblado ----
-    const blocksHtml = [datosPersonalesHtml, productosHtml, entregaHtml, pagoHtml, totalesHtml].join("");
-    const logoUrl = `${env.APP_BASE_URL.replace(/\/$/, "")}/assets/images/brotalia-iso-00.png`;
-    const mensajeHtml = buildEmailWrapperHtml(buildEmailHeaderHtml(`Pedido #${input.orderRef}`, logoUrl), blocksHtml, buildEmailFooterHtml());
-    const mensajeText = [
-      "DETALLE DEL PEDIDO",
-      `Pedido #${input.orderRef}`,
-      "",
-      datosPersonalesText,
-      "",
-      productosText,
-      "",
-      entregaText,
-      "",
-      pagoText,
-      "",
-      totalesText,
-      "",
-      "¡Gracias por tu compra!"
-    ].join("\n");
-
-    const response = await fetch("https://api.resend.com/emails", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${env.RESEND_API_KEY}`,
-        "Content-Type": "application/json"
+    const summary = buildSummaryBlocks(env, {
+      items: Array.from(groups.values()),
+      subtotalNoDiscountArs,
+      volumeDiscountPercentage: input.volumeDiscountPercentage,
+      productsTotalArs,
+      subtotalNoTaxArs,
+      vatLabel: input.vatLabel,
+      shippingBoxes: input.shippingBoxes,
+      entrega: {
+        method: input.shipping.method,
+        address: input.shipping.address ?? null,
+        shippingAmountArs: input.shippingAmountArs,
+        customerPhone: phone,
+        customerWaUrl: buildCustomerWhatsAppUrl(input.customer.codigoArea, input.customer.celular)
       },
-      body: JSON.stringify({
-        from: EMAIL_FROM,
-        to: [input.customer.email],
-        cc: ["integralesproveedores@gmail.com"],
-        subject: `Orden de Compra #${input.orderRef}`,
-        html: mensajeHtml,
-        text: mensajeText
-      })
+      pago: {
+        methodLabel: "Transferencia bancaria",
+        transferDiscountPercentage: input.transferSavingsPercentage,
+        detailsHtml: `${cuentaHtml}
+          <p style="margin:12px 0 0;padding:10px 12px;background-color:#e9f7ef;border-radius:8px;text-align:center;font-family:${FONT_BODY};font-size:12px;color:#1e7e34;font-weight:bold;">${avisoPago}</p>`,
+        detailsText: [
+          ...transferAccounts.flatMap(c => [
+            `Alias: ${c.alias}`,
+            ...(c.cvu ? [`CVU: ${c.cvu}`] : []),
+            ...(c.cbu ? [`CBU: ${c.cbu}`] : []),
+            `Titular: ${c.account_holder_name}`,
+            `CUIT: ${c.account_holder_tax_id}`,
+            ...(c.account_number ? [`Cuenta: ${c.account_number}`] : [])
+          ]),
+          "",
+          avisoPago
+        ]
+      },
+      commission: null,
+      totalArs: input.totalArs
     });
 
-    if (!response.ok) {
-      throw new Error(`Resend request failed with status ${response.status}: ${await response.text()}`);
-    }
+    const email = assembleEmail(env, `Pedido #${input.orderRef}`, datos, summary);
+    await sendConfirmationEmail(env, {
+      to: input.customer.email,
+      subject: `Orden de Compra #${input.orderRef}`,
+      html: email.html,
+      text: email.text
+    });
   } catch (error) {
     console.error("Unable to send transfer order confirmation email", error);
   }
@@ -500,15 +689,17 @@ export async function sendTransferOrderConfirmationEmail(env: Env, input: Transf
 
 /**
  * Mail de confirmación de pago aprobado por Mercado Pago, disparado desde
- * MercadoPagoCheckoutService.processPayment. Misma estructura en 5 bloques
- * que sendTransferOrderConfirmationEmail (Datos personales / Productos /
- * Entrega / Método de pago / Totales). El embalaje se recalcula acá a
- * partir de order_items + código postal (ver más abajo), igual que en el
- * mail de transferencia. El % de descuento por volumen NO se muestra
+ * MercadoPagoCheckoutService.processPayment. Misma estructura que
+ * sendTransferOrderConfirmationEmail. El embalaje se recalcula acá a partir
+ * de order_items + código postal, igual que en el mail de transferencia.
+ *
+ * El % de descuento por volumen NO se muestra (filas Subtotal / Descuento)
  * porque no se persiste en ningún lado (ni en orders ni en order_items):
  * reconstruirlo con exactitud requeriría una migración que guarde ese dato
  * al crear la orden, o recalcularlo con el pricing vigente al momento del
- * mail (que puede no coincidir con el vigente al momento de la compra).
+ * mail (que puede no coincidir con el vigente al momento de la compra). Por
+ * lo mismo, cada línea muestra el subtotal ya descontado y no se muestra
+ * "Sin impuestos Nacionales".
  */
 export async function sendMercadoPagoOrderConfirmationEmail(
   env: Env,
@@ -517,10 +708,10 @@ export async function sendMercadoPagoOrderConfirmationEmail(
 ): Promise<void> {
   try {
     const supabase = getSupabase(env);
-    const [orderResult, itemsResult, customerResult, addressResult] = await Promise.all([
+    const [orderResult, itemsResult, customerResult, addressResult, taxes] = await Promise.all([
       supabase
         .from("orders")
-        .select("id, total_amount, subtotal_amount, shipping_amount, exchange_rate_used")
+        .select("id, total_amount, subtotal_amount, shipping_amount, payment_commission_percentage, payment_commission_amount")
         .eq("id", orderId)
         .single(),
       supabase
@@ -534,7 +725,8 @@ export async function sendMercadoPagoOrderConfirmationEmail(
             units_per_pack,
             products (
               id,
-              name
+              name,
+              product_images ( image_url, position )
             )
           )
         `)
@@ -548,7 +740,8 @@ export async function sendMercadoPagoOrderConfirmationEmail(
         .from("order_addresses")
         .select("recipient_name, postal_code, province, locality, county, street, street_number, floor, apartment, shipping_method")
         .eq("order_id", orderId)
-        .maybeSingle()
+        .maybeSingle(),
+      getCachedTaxes(env)
     ]);
 
     if (orderResult.error || !orderResult.data) {
@@ -578,150 +771,99 @@ export async function sendMercadoPagoOrderConfirmationEmail(
     const phone = formatCustomerPhone(customer.phone_area_code, customer.phone_number);
     const customerWaUrl = buildCustomerWhatsAppUrl(customer.phone_area_code, customer.phone_number);
 
-    // ---- Datos personales ----
-    const datosPersonalesHtml = emailBlockHtml("Datos personales", emailFieldsTableHtml([
-      emailFieldRowHtml("Nombre", escapeHtmlForEmail(customer.full_name)),
-      emailFieldRowHtml("Email", escapeHtmlForEmail(customer.email)),
-      emailFieldRowHtml("Teléfono", escapeHtmlForEmail(phone)),
-      ...(customer.tax_id ? [emailFieldRowHtml("CUIT", escapeHtmlForEmail(customer.tax_id))] : [])
-    ].join("")));
-    const datosPersonalesText = [
-      "DATOS PERSONALES",
-      `Nombre: ${customer.full_name}`,
-      `Email: ${customer.email}`,
-      `Teléfono: ${phone}`,
-      ...(customer.tax_id ? [`CUIT: ${customer.tax_id}`] : [])
-    ].join("\n");
+    const ivaTax = taxes.find(t => t.name.toUpperCase() === "IVA");
+    const vatLabel = ivaTax?.is_computable ? "IVA Incluido" : "IVA no incluido";
 
-    // ---- Productos (misma data/columnas de siempre, solo cambia el estilo) ----
-    const productosRowsHtml = items.map(item => {
+    const datos = buildDatosPersonales({
+      nombre: customer.full_name,
+      email: customer.email,
+      phone,
+      cuit: customer.tax_id
+    });
+
+    // Productos agrupados por producto (varias presentaciones del mismo producto suman en una línea).
+    const groups = new Map<string, SummaryItem>();
+    for (const item of items) {
       const variant = getVariant(item.product_variants);
       const product = getProduct(variant?.products ?? null);
       const quantity = Number(item.quantity);
-      const unitPrice = Number(item.unit_price);
-      return `<tr>
-        <td style="padding:8px 0;border-bottom:1px solid #f2f2f2;color:${EMAIL_COLORS.title};"><strong>${escapeHtmlForEmail(product?.name ?? "")}</strong><br><span style="font-size:11px;color:${EMAIL_COLORS.label};">SKU: ${escapeHtmlForEmail(variant?.sku ?? "")}</span></td>
-        <td style="padding:8px 0;border-bottom:1px solid #f2f2f2;text-align:center;color:${EMAIL_COLORS.value};">${quantity}</td>
-        <td style="padding:8px 0;border-bottom:1px solid #f2f2f2;text-align:right;color:${EMAIL_COLORS.value};">$${formatArsAmount(unitPrice)}</td>
-        <td style="padding:8px 0;border-bottom:1px solid #f2f2f2;text-align:right;color:${EMAIL_COLORS.value};">$${formatArsAmount(unitPrice * quantity)}</td>
-      </tr>`;
-    }).join("");
-    const productosHtml = emailBlockHtml("Productos", `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="font-family:Arial,sans-serif;font-size:13px;">
-      <thead><tr>
-        <th style="text-align:left;padding:6px 0;border-bottom:1px solid #eee;color:${EMAIL_COLORS.label};font-weight:normal;">Producto</th>
-        <th style="text-align:center;padding:6px 0;border-bottom:1px solid #eee;color:${EMAIL_COLORS.label};font-weight:normal;">Cant.</th>
-        <th style="text-align:right;padding:6px 0;border-bottom:1px solid #eee;color:${EMAIL_COLORS.label};font-weight:normal;">Precio</th>
-        <th style="text-align:right;padding:6px 0;border-bottom:1px solid #eee;color:${EMAIL_COLORS.label};font-weight:normal;">Subtotal</th>
-      </tr></thead>
-      <tbody>${productosRowsHtml}</tbody>
-    </table>`);
-    const productosText = [
-      "PRODUCTOS",
-      ...items.map(item => {
-        const variant = getVariant(item.product_variants);
-        const product = getProduct(variant?.products ?? null);
-        const quantity = Number(item.quantity);
-        const unitPrice = Number(item.unit_price);
-        return `- ${product?.name ?? ""} (SKU ${variant?.sku ?? ""}) x${quantity} - Precio unitario: $${formatArsAmount(unitPrice)} - Subtotal: $${formatArsAmount(unitPrice * quantity)}`;
-      })
-    ].join("\n");
+      const units = Number(variant?.units_per_pack ?? 1) * quantity;
+      const subtotal = Number(item.unit_price) * quantity;
+      const key = product?.id ?? variant?.sku ?? item.product_variant_id;
+      const existing = groups.get(key);
+      if (existing) {
+        existing.totalUnits += units;
+        existing.subtotalArs += subtotal;
+      } else {
+        const firstImage = [...(product?.product_images ?? [])].sort((a, b) => a.position - b.position)[0]?.image_url ?? null;
+        groups.set(key, { name: product?.name ?? variant?.sku ?? "", totalUnits: units, subtotalArs: subtotal, imageUrl: firstImage });
+      }
+    }
 
     // ---- Embalaje (recalculado a partir de order_items + código postal; no se
     // persiste en la orden, así que se reconstruye igual que en el mail de
     // transferencia en vez de agregar una columna nueva solo para esto) ----
     let shippingBoxes: ShippingBox[] = [];
     if (address?.shipping_method === "delivery" && address.postal_code) {
-      const productGroups = Array.from(items.reduce((groups, item) => {
+      const productGroups = Array.from(items.reduce((acc, item) => {
         const variant = getVariant(item.product_variants);
         const product = getProduct(variant?.products ?? null);
-        if (!product?.id) return groups;
+        if (!product?.id) return acc;
         const unitsPerPack = Number(variant?.units_per_pack ?? 1);
-        groups.set(product.id, (groups.get(product.id) ?? 0) + Number(item.quantity) * unitsPerPack);
-        return groups;
+        acc.set(product.id, (acc.get(product.id) ?? 0) + Number(item.quantity) * unitsPerPack);
+        return acc;
       }, new Map<string, number>()), ([product_id, units]) => ({ product_id, units }));
       try {
-        const resolution = await resolveShippingRate(env, address.postal_code, productGroups);
+        const resolution = await resolveShippingRate(env, address.postal_code, productGroups, address.province);
         shippingBoxes = resolution?.boxes ?? [];
       } catch (error) {
         console.error("Unable to recompute shipping boxes for confirmation email:", error);
       }
     }
 
-    // ---- Entrega ----
-    const entrega = buildEntregaBlock({
-      method: address?.shipping_method ?? null,
-      address: address,
-      shippingAmountArs: Number(order.shipping_amount),
+    const commissionAmount = Number(order.payment_commission_amount ?? 0);
+    const commissionPercentage = Number(order.payment_commission_percentage ?? 0);
+
+    const summary = buildSummaryBlocks(env, {
+      items: Array.from(groups.values()),
+      subtotalNoDiscountArs: null,
+      volumeDiscountPercentage: 0,
+      productsTotalArs: Number(order.subtotal_amount),
+      subtotalNoTaxArs: null,
+      vatLabel,
       shippingBoxes,
-      customerPhone: phone,
-      customerWaUrl
-    });
-    const entregaHtml = entrega.html;
-    const entregaText = entrega.text;
-
-    // ---- Método de pago (ya aprobado, sin datos de cuenta) ----
-    const pagoHtml = emailBlockHtml("Método de pago", emailFieldsTableHtml([
-      emailFieldRowHtml("ID de pago", escapeHtmlForEmail(payment.id), { mono: true }),
-      emailFieldRowHtml("Estado", escapeHtmlForEmail(payment.status)),
-      emailFieldRowHtml("Fecha de aprobación", escapeHtmlForEmail(payment.date_approved))
-    ].join("")), "Mercado Pago");
-    const pagoText = [
-      "MÉTODO DE PAGO — Mercado Pago",
-      `ID de pago: ${payment.id}`,
-      `Estado: ${payment.status}`,
-      `Fecha de aprobación: ${payment.date_approved}`
-    ].join("\n");
-
-    // ---- Totales ----
-    const totalesHtml = emailBlockHtml("Totales", `${emailFieldsTableHtml(emailFieldRowHtml("Subtotal", `$${formatArsAmount(order.subtotal_amount)}`))}
-        ${buildTotalRowHtml(order.total_amount, `Cotización usada: $${formatArsAmount(order.exchange_rate_used)}`, "margin-top:6px;")}`);
-    const totalesText = [
-      "TOTALES",
-      `Subtotal: $${formatArsAmount(order.subtotal_amount)}`,
-      `TOTAL: $${formatArsAmount(order.total_amount)} ARS`,
-      `Cotización usada: $${formatArsAmount(order.exchange_rate_used)}`
-    ].join("\n");
-
-    // ---- Ensamblado ----
-    const blocksHtml = [datosPersonalesHtml, productosHtml, entregaHtml, pagoHtml, totalesHtml].join("");
-    const logoUrl = `${env.APP_BASE_URL.replace(/\/$/, "")}/assets/images/brotalia-iso-00.png`;
-    const mensajeHtml = buildEmailWrapperHtml(buildEmailHeaderHtml(`Pedido #${orderId}`, logoUrl), blocksHtml, buildEmailFooterHtml());
-    const mensajeText = [
-      "DETALLE DEL PEDIDO",
-      `Pedido #${orderId}`,
-      "",
-      datosPersonalesText,
-      "",
-      productosText,
-      "",
-      entregaText,
-      "",
-      pagoText,
-      "",
-      totalesText,
-      "",
-      "¡Gracias por tu compra!"
-    ].join("\n");
-
-    const response = await fetch("https://api.resend.com/emails", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${env.RESEND_API_KEY}`,
-        "Content-Type": "application/json"
+      entrega: {
+        method: address?.shipping_method ?? null,
+        address,
+        shippingAmountArs: Number(order.shipping_amount),
+        customerPhone: phone,
+        customerWaUrl
       },
-      body: JSON.stringify({
-        from: EMAIL_FROM,
-        to: [customer.email],
-        cc: ["integralesproveedores@gmail.com"],
-        subject: `Confirmación de tu pedido #${orderId} - Brotalia`,
-        html: mensajeHtml,
-        text: mensajeText
-      })
+      pago: {
+        methodLabel: "Mercado Pago",
+        transferDiscountPercentage: 0,
+        detailsHtml: emailFieldsTableHtml([
+          emailFieldRowHtml("ID de pago", escapeHtmlForEmail(payment.id)),
+          emailFieldRowHtml("Estado", escapeHtmlForEmail(payment.status)),
+          emailFieldRowHtml("Fecha de aprobación", escapeHtmlForEmail(payment.date_approved))
+        ].join("")),
+        detailsText: [
+          `ID de pago: ${payment.id}`,
+          `Estado: ${payment.status}`,
+          `Fecha de aprobación: ${payment.date_approved}`
+        ]
+      },
+      commission: commissionAmount > 0 ? { percentage: commissionPercentage, amountArs: commissionAmount } : null,
+      totalArs: Number(order.total_amount)
     });
 
-    if (!response.ok) {
-      throw new Error(`Resend request failed with status ${response.status}: ${await response.text()}`);
-    }
+    const email = assembleEmail(env, `Pedido #${orderId}`, datos, summary);
+    await sendConfirmationEmail(env, {
+      to: customer.email,
+      subject: `Confirmación de tu pedido #${orderId} - Brotalia`,
+      html: email.html,
+      text: email.text
+    });
   } catch (error) {
     console.error("Unable to send order confirmation email", error);
   }

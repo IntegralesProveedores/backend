@@ -7,7 +7,6 @@
 export interface RawVariant {
   id: string;
   sku: string;
-  stock: number;
   units_per_pack: number | null;
   volume_cc: number | null;
   weight_grams?: number | null;
@@ -38,6 +37,8 @@ export interface RawProduct {
   cost_usd: number;
   cost_currency?: 'ARS' | 'USD';
   units_per_pack_master: number;
+  /** Stock del producto en unidades sueltas (todas sus presentaciones descuentan de acá). */
+  stock_units: number;
   diameter_cm?: number | null;
   height_cm?: number | null;
   volume_cc?: number | null;

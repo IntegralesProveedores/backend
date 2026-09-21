@@ -18,7 +18,7 @@ import {
 } from "../lib/payment-input.validation";
 import { createOrderRecord } from "./orders.repository";
 import { sendMercadoPagoOrderConfirmationEmail } from "./email/order-confirmation-templates";
-import { buildOrderQuote, OrderQuote } from "./order-quote.service";
+import { assertExpectedTotal, buildOrderQuote, OrderQuote, OrderQuoteError } from "./order-quote.service";
 
 // ─────────────────────────────────────────────────────────────
 // QUÉ HACE: Checkout de Mercado Pago (crear preferencia + procesar el pago
@@ -59,6 +59,7 @@ export class PaymentService {
       "mercadopago",
       quote.paymentCommissionPercentage
     );
+    assertExpectedTotal(input.expected_total_ars, commission.totalConComision);
     const externalReference = crypto.randomUUID();
     const createdOrder = await createOrderRecord(
       this.env,
@@ -76,8 +77,8 @@ export class PaymentService {
       quote.subtotalArs,
       quote.exchangeRate,
       externalReference,
-      "mercadopago",
       input.shipping,
+      quote.shippingArs,
       "mercadopago",
       commission.paymentCommissionPercentage,
       commission.paymentCommissionAmount
@@ -87,6 +88,15 @@ export class PaymentService {
       const preference = await this.mercadoPago.createPreference(
         this.buildPreference(input, quote, externalReference, createdOrder.id, commission.paymentCommissionAmount)
       );
+
+      // El stock se descuenta al confirmar el pedido (botón Pagar), sin esperar
+      // la aprobación del pago. decrement_order_stock es atómica e idempotente
+      // (orders.stock_decremented_at): el webhook de aprobación no vuelve a
+      // descontar. Si no alcanza el stock, el catch cancela la orden.
+      const { error: stockError } = await supabase.rpc("decrement_order_stock", {
+        p_order_id: createdOrder.id
+      });
+      if (stockError) throw new OrderQuoteError("Insufficient stock to complete the order");
 
       return { init_point: preference.init_point };
     } catch (error) {

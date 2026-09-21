@@ -1,10 +1,11 @@
 import { getSupabase } from "../services/db";
 import { getPricingConfig, getCachedTaxes, getCachedVolumeDiscounts } from "../services/settings";
 import { jsonResponse, errorResponse } from "../lib/response";
-import { PRODUCT_SUMMARY_SELECT, PRODUCT_DETAIL_SELECT, cleanProduct, DEFAULT_VOLUME_DISCOUNTS } from "../lib/products";
+import { PRODUCT_SUMMARY_SELECT, PRODUCT_DETAIL_SELECT, cleanProduct, buildPricingConfigPayload } from "../lib/products";
 import { RouteContext } from "../lib/router";
 import { RawProduct } from "../lib/types";
 import { enforceRateLimit } from "../lib/rate-limit";
+import { parseIntParam } from "../lib/request";
 
 export async function handleProducts({ env, url, request }: RouteContext) {
   const limited = await enforceRateLimit(env, request, "products/list");
@@ -13,10 +14,10 @@ export async function handleProducts({ env, url, request }: RouteContext) {
   try {
     const supabase = getSupabase(env);
 
-    const page = Math.max(1, parseInt(url.searchParams.get("page") || "1"));
-    const limit = Math.min(50, Math.max(1, parseInt(url.searchParams.get("limit") || "20")));
+    const page = parseIntParam(url.searchParams.get("page"), 1, 1);
+    const limit = parseIntParam(url.searchParams.get("limit"), 20, 1, 50);
     const offset = (page - 1) * limit;
-    const quantity = Math.max(1, parseInt(url.searchParams.get("quantity") || "1"));
+    const quantity = parseIntParam(url.searchParams.get("quantity"), 1, 1);
 
     const productsQuery = supabase
       .from("products")
@@ -38,23 +39,13 @@ export async function handleProducts({ env, url, request }: RouteContext) {
       return errorResponse("Unable to load products", 500, { supabase_error: error.message });
     }
 
-    const resolvedVolumeDiscounts = volumeDiscounts.length > 0 ? volumeDiscounts : DEFAULT_VOLUME_DISCOUNTS;
-
     const products = (data ?? []) as unknown as RawProduct[];
 
     return jsonResponse({
       items: products.map(p =>
         cleanProduct(p, pricingConfig.exchangeRate, pricingConfig.markups.minorista, pricingConfig.embalageCost, quantity, taxes, volumeDiscounts, pricingConfig.packagingCost ?? 0)
       ),
-      pricing_config: {
-        exchange_rate: pricingConfig.exchangeRate,
-        embalaje_cost: pricingConfig.embalageCost,
-        packaging_cost: pricingConfig.packagingCost ?? 0,
-        taxes,
-        volume_discounts: resolvedVolumeDiscounts,
-        markup: pricingConfig.markups.minorista,
-        payment_commission_percentage: pricingConfig.paymentCommissionPercentage
-      },
+      pricing_config: buildPricingConfigPayload(pricingConfig, taxes, volumeDiscounts),
       pagination: {
         total: count || 0,
         page,
@@ -77,7 +68,7 @@ export async function handleProductBySlug({ env, params, url, request }: RouteCo
       return errorResponse("Invalid slug format", 400);
     }
 
-    const quantity = Math.max(1, parseInt(url.searchParams.get("quantity") || "1"));
+    const quantity = parseIntParam(url.searchParams.get("quantity"), 1, 1);
     const supabase = getSupabase(env);
     const productQuery = supabase
       .from("products")
@@ -100,8 +91,6 @@ export async function handleProductBySlug({ env, params, url, request }: RouteCo
       return errorResponse("Product not found", 404);
     }
 
-    const resolvedVolumeDiscounts = volumeDiscounts.length > 0 ? volumeDiscounts : DEFAULT_VOLUME_DISCOUNTS;
-
     const product = data as unknown as RawProduct;
     const cleaned = cleanProduct(product, pricingConfig.exchangeRate, pricingConfig.markups.minorista, pricingConfig.embalageCost, quantity, taxes, volumeDiscounts, pricingConfig.packagingCost ?? 0);
 
@@ -121,15 +110,7 @@ export async function handleProductBySlug({ env, params, url, request }: RouteCo
 
     return jsonResponse({
       ...cleaned,
-      pricing_config: {
-        exchange_rate: pricingConfig.exchangeRate,
-        embalaje_cost: pricingConfig.embalageCost,
-        packaging_cost: pricingConfig.packagingCost ?? 0,
-        taxes,
-        volume_discounts: resolvedVolumeDiscounts,
-        markup: pricingConfig.markups.minorista,
-        payment_commission_percentage: pricingConfig.paymentCommissionPercentage
-      }
+      pricing_config: buildPricingConfigPayload(pricingConfig, taxes, volumeDiscounts)
     });
   } catch (e: any) {
     return errorResponse("Unable to load product", 500, { original_message: e.message, stack: e.stack });

@@ -1,6 +1,5 @@
 import { getSupabase } from "./db";
 import { PaymentCustomerInput, ShippingInput } from "../lib/payment-input.validation";
-import { getShippingPriceArs } from "./shipping.service";
 
 // ─────────────────────────────────────────────────────────────
 // QUÉ HACE: Persistencia de la orden y sus filas relacionadas
@@ -25,23 +24,13 @@ export async function createOrderRecord(
   totalArs: number,
   exchangeRate: number,
   externalReference: string,
-  source: "mercadopago" | "manual",
   shipping: ShippingInput,
+  shippingAmount: number,
   paymentMethod: string,
   paymentCommissionPercentage: number,
   paymentCommissionAmount: number
 ): Promise<{ id: string }> {
   const supabase = getSupabase(env);
-  const productGroups = Array.from(items.reduce((groups, item) => {
-    groups.set(item.product_id, (groups.get(item.product_id) ?? 0) + item.quantity * item.units_per_pack);
-    return groups;
-  }, new Map<string, number>()), ([product_id, units]) => ({ product_id, units }));
-  const shippingAmount = await getShippingPriceArs(env, shipping, productGroups);
-  const totalAmount = totalArs + shippingAmount;
-  const paymentStatusBySource: Record<"mercadopago" | "manual", "pending"> = {
-    mercadopago: "pending",
-    manual: "pending"
-  };
   const { data, error } = await supabase
     .from("orders")
     .insert({
@@ -54,7 +43,7 @@ export async function createOrderRecord(
       payment_commission_amount: paymentCommissionAmount,
       exchange_rate_used: exchangeRate,
       status: "pending",
-      payment_status: paymentStatusBySource[source],
+      payment_status: "pending",
       shipping_status: "pending",
       external_reference: externalReference
     })

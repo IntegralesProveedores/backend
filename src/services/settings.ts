@@ -56,15 +56,20 @@ export async function getExchangeRate(env: any): Promise<number> {
     return await refreshExchangeRate(env);
   }
 
-  return Number(data.usd_exchange_rate) || 1;
+  return Number(data.usd_exchange_rate) || FALLBACK_EXCHANGE_RATE;
 }
 
 async function refreshExchangeRate(env: any): Promise<number> {
-  let rate = 1;
+  // CUIDADO: nunca persistir un tipo de cambio inválido. Un valor de 1 en
+  // pricing_settings hunde todos los precios hasta el próximo refresh exitoso
+  // (que recién ocurre una hora después). Ante cualquier falla se devuelve el
+  // último valor guardado, sin escribir nada.
   try {
     const res = await fetch("https://dolarapi.com/v1/dolares/oficial");
+    if (!res.ok) throw new Error(`DolarAPI respondió HTTP ${res.status}`);
     const data: any = await res.json();
-    rate = Number(data?.venta) || 1;
+    const rate = Number(data?.venta);
+    if (!Number.isFinite(rate) || rate <= 0) throw new Error("DolarAPI devolvió un tipo de cambio inválido");
 
     const supabase = getSupabase(env);
     const { error } = await supabase.rpc("update_exchange_rate", {
@@ -81,14 +86,22 @@ async function refreshExchangeRate(env: any): Promise<number> {
     return rate;
   } catch (e) {
     console.error("Error critico al refrescar el tipo de cambio desde DolarAPI:", e);
-    return rate;
+    return await getStoredExchangeRate(env);
   }
 }
 
-function refreshExchangeRateBackground(env: any): void {
-  void refreshExchangeRate(env).catch((e) => {
-    console.error("Error en segundo plano al refrescar el tipo de cambio desde DolarAPI:", e);
-  });
+async function getStoredExchangeRate(env: any): Promise<number> {
+  try {
+    const { data } = await getSupabase(env)
+      .from("settings")
+      .select("usd_exchange_rate")
+      .eq("id", true)
+      .single();
+    const stored = Number(data?.usd_exchange_rate);
+    return Number.isFinite(stored) && stored > 0 ? stored : FALLBACK_EXCHANGE_RATE;
+  } catch {
+    return FALLBACK_EXCHANGE_RATE;
+  }
 }
 
 export interface PricingConfig {
@@ -100,46 +113,69 @@ export interface PricingConfig {
   paymentCommissionPercentage: number;
 }
 
-const FALLBACK: PricingConfig = {
-  exchangeRate: 1481.94,
-  embalageCost: 745.56,
-  packagingCost: 0,
-  markups: { minorista: 40, mayorista: 30 },
-  shippingPriceBufferPercentage: 40,
-  paymentCommissionPercentage: 6.5
-};
+export class PricingConfigError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "PricingConfigError";
+  }
+}
+
+/**
+ * CUIDADO: no hay valores de respaldo para precios. Si pricing_settings no se
+ * puede leer o tiene un valor inválido se corta con error (y no se cachea): un
+ * respaldo fijo cotizaba y cobraba órdenes con dólar, markup, envío y comisión
+ * viejos durante todo el TTL del caché. Solo el tipo de cambio tiene un
+ * último recurso (FALLBACK_EXCHANGE_RATE), y únicamente para /settings.
+ */
+const FALLBACK_EXCHANGE_RATE = 1481.94;
+
+async function getPricingSettingsMap(env: any): Promise<Record<string, number>> {
+  return getCached(env, "pricing_settings_v2", async () => {
+    const supabase = getSupabase(env);
+    const { data, error } = await supabase
+      .from("pricing_settings")
+      .select("key, value")
+      .eq("is_active", true);
+    if (error) throw new PricingConfigError(`Unable to load pricing settings: ${error.message}`);
+    if (!data || data.length === 0) throw new PricingConfigError("pricing_settings is empty");
+    return Object.fromEntries(data.map((row: any) => [String(row.key), Number(row.value)]));
+  });
+}
+
+/** Valor numérico finito y no negativo (o > 0 si positive=true); si falta o es inválido, error. */
+function requireSetting(settings: Record<string, number>, key: string, positive = false): number {
+  const value = settings[key];
+  if (!Number.isFinite(value) || (positive ? value <= 0 : value < 0)) {
+    throw new PricingConfigError(`pricing_settings "${key}" is missing or invalid`);
+  }
+  return value;
+}
 
 export async function getPricingConfig(env: any): Promise<PricingConfig> {
-  return getCached(env, "pricing_settings", async () => {
-    try {
-      const supabase = getSupabase(env);
-      const { data, error } = await supabase
-        .from("pricing_settings")
-        .select("key, value")
-        .eq("is_active", true);
-      if (error || !data || data.length === 0) return FALLBACK;
-      const map = new Map<string, number>(data.map((r: any) => [r.key, Number(r.value)]));
-      return {
-        exchangeRate: map.get('usd_exchange_rate') ?? FALLBACK.exchangeRate,
-        embalageCost: map.get('embalaje_cost') ?? FALLBACK.embalageCost,
-        packagingCost: map.get('packaging_cost') ?? FALLBACK.packagingCost,
-        markups: {
-          minorista: map.get('markup_minorista') ?? FALLBACK.markups.minorista,
-          mayorista: map.get('markup_mayorista') ?? FALLBACK.markups.mayorista
-        },
-        shippingPriceBufferPercentage: map.get('shipping_price_buffer_percentage') ?? FALLBACK.shippingPriceBufferPercentage,
-        paymentCommissionPercentage: map.get('payment_commission_percentage') ?? FALLBACK.paymentCommissionPercentage
-      };
-    } catch (e) {
-      console.error("Excepcion al obtener pricing config desde base de datos, usando fallback:", e);
-      return FALLBACK;
-    }
-  });
+  const settings = await getPricingSettingsMap(env);
+  return {
+    exchangeRate: requireSetting(settings, "usd_exchange_rate", true),
+    embalageCost: requireSetting(settings, "embalaje_cost"),
+    // packaging_cost y markup_mayorista son opcionales: sin fila valen 0.
+    packagingCost: Number.isFinite(settings["packaging_cost"]) && settings["packaging_cost"] >= 0 ? settings["packaging_cost"] : 0,
+    markups: {
+      minorista: requireSetting(settings, "markup_minorista"),
+      mayorista: Number.isFinite(settings["markup_mayorista"]) && settings["markup_mayorista"] >= 0 ? settings["markup_mayorista"] : 0
+    },
+    shippingPriceBufferPercentage: requireSetting(settings, "shipping_price_buffer_percentage"),
+    paymentCommissionPercentage: requireSetting(settings, "payment_commission_percentage")
+  };
+}
+
+/** Buffer de envío, sin exigir el resto de la config de precios. */
+export async function getShippingPriceBufferPercentage(env: any): Promise<number> {
+  return requireSetting(await getPricingSettingsMap(env), "shipping_price_buffer_percentage");
 }
 
 export interface VolumeDiscountRule {
   min: number;
-  factor: number;
+  /** Descuento sobre el costo del producto, en % (0-100). */
+  discount_percentage: number;
 }
 
 export async function getCachedTaxes(env: any): Promise<TaxRule[]> {
@@ -160,16 +196,16 @@ export async function getCachedTaxes(env: any): Promise<TaxRule[]> {
 }
 
 export async function getCachedVolumeDiscounts(env: any): Promise<VolumeDiscountRule[]> {
-  return getCached(env, "pricing_volume_discounts", async () => {
+  return getCached(env, "pricing_volume_discounts_v2", async () => {
     const supabase = getSupabase(env);
     const { data, error } = await supabase
       .from("pricing_volume_discounts")
-      .select("min_quantity, factor")
+      .select("min_quantity, discount_percentage")
       .order("min_quantity", { ascending: false });
     if (error) throw new Error(`Unable to load discounts: ${error.message}`);
     return (data ?? []).map((d: any) => ({
       min: Number(d.min_quantity),
-      factor: Number(d.factor)
+      discount_percentage: Number(d.discount_percentage)
     }));
   });
 }

@@ -1,9 +1,10 @@
 import { getSupabase } from "../services/db";
-import { getPricingConfig } from "../services/settings";
+import { getPricingConfig, getCachedTaxes, getCachedVolumeDiscounts } from "../services/settings";
 import { jsonResponse, errorResponse } from "../lib/response";
 import { PRODUCT_SUMMARY_SELECT, cleanProduct } from "../lib/products";
 import { RouteContext } from "../lib/router";
 import { enforceRateLimit } from "../lib/rate-limit";
+import { parseIntParam } from "../lib/request";
 
 function cleanCategory(category: any) {
   return {
@@ -93,8 +94,8 @@ export async function handleCategoryProducts({ env, params, url, request }: Rout
   const supabase = getSupabase(env);
   const { slug } = params;
 
-  const page = Math.max(1, parseInt(url.searchParams.get("page") || "1"));
-  const limit = Math.min(50, Math.max(1, parseInt(url.searchParams.get("limit") || "20")));
+  const page = parseIntParam(url.searchParams.get("page"), 1, 1);
+  const limit = parseIntParam(url.searchParams.get("limit"), 20, 1, 50);
   const offset = (page - 1) * limit;
 
   const { data: category, error: catError } = await supabase
@@ -107,12 +108,14 @@ export async function handleCategoryProducts({ env, params, url, request }: Rout
     return errorResponse("Category not found", 404);
   }
 
-  const [{ data: children }, { data: parent }, pricingConfig] = await Promise.all([
+  const [{ data: children }, { data: parent }, pricingConfig, taxes, volumeDiscounts] = await Promise.all([
     supabase.from("categories").select("id").eq("parent_id", category.id),
     category.parent_id
       ? supabase.from("categories").select("id, name, slug").eq("id", category.parent_id).maybeSingle()
       : Promise.resolve({ data: null }),
-    getPricingConfig(env)
+    getPricingConfig(env),
+    getCachedTaxes(env),
+    getCachedVolumeDiscounts(env)
   ]);
 
   const categoryIds = [category.id, ...(children ?? []).map((c: any) => c.id)];
@@ -147,7 +150,7 @@ export async function handleCategoryProducts({ env, params, url, request }: Rout
 
   return jsonResponse({
     category: { ...cleanCategory(category), parent: parent ?? null },
-    items: (products ?? []).map((p: any) => cleanProduct(p, pricingConfig.exchangeRate, pricingConfig.markups.minorista, pricingConfig.embalageCost, 1, [], [], pricingConfig.packagingCost ?? 0)),
+    items: (products ?? []).map((p: any) => cleanProduct(p, pricingConfig.exchangeRate, pricingConfig.markups.minorista, pricingConfig.embalageCost, 1, taxes, volumeDiscounts, pricingConfig.packagingCost ?? 0)),
     pagination: {
       total: count || 0,
       page,

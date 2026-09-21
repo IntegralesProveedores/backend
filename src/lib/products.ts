@@ -1,35 +1,62 @@
 import { RawProduct, CleanProduct, CleanVariant, RawCategory } from "./types";
 import { calculatePriceV2, TaxRule, EMBALAJE_COST, round } from "./pricing";
+import type { PricingConfig, VolumeDiscountRule } from "../services/settings";
 
-export const DEFAULT_VOLUME_DISCOUNTS = [
-  { min: 31, factor: 1.25 },
-  { min: 21, factor: 1.20 },
-  { min: 11, factor: 1.15 },
-  { min: 6, factor: 1.10 },
-  { min: 3, factor: 1.05 },
-  { min: 1, factor: 1.00 }
+/** Descuento por volumen, en % sobre el costo del producto, según packs equivalentes. */
+export const DEFAULT_VOLUME_DISCOUNTS: VolumeDiscountRule[] = [
+  { min: 31, discount_percentage: 25 },
+  { min: 21, discount_percentage: 20 },
+  { min: 11, discount_percentage: 15 },
+  { min: 6, discount_percentage: 10 },
+  { min: 3, discount_percentage: 5 },
+  { min: 1, discount_percentage: 0 }
 ];
 
-export function resolveVolumeDiscountFactor(
+/** Bloque `pricing_config` que acompaña a los endpoints de productos, para que
+ *  el frontend pueda recalcular precios localmente con las mismas reglas. */
+export function buildPricingConfigPayload(
+  pricingConfig: PricingConfig,
+  taxes: TaxRule[],
+  volumeDiscounts: VolumeDiscountRule[]
+) {
+  return {
+    exchange_rate: pricingConfig.exchangeRate,
+    embalaje_cost: pricingConfig.embalageCost,
+    packaging_cost: pricingConfig.packagingCost ?? 0,
+    taxes,
+    // `factor` es el formato viejo (costo ÷ factor). Se sigue enviando solo para que
+    // un frontend anterior, todavía cargado en el navegador, calcule lo mismo.
+    volume_discounts: (volumeDiscounts.length > 0 ? volumeDiscounts : DEFAULT_VOLUME_DISCOUNTS).map(d => ({
+      min: d.min,
+      discount_percentage: d.discount_percentage,
+      factor: Number((100 / (100 - d.discount_percentage)).toFixed(4))
+    })),
+    markup: pricingConfig.markups.minorista,
+    payment_commission_percentage: pricingConfig.paymentCommissionPercentage
+  };
+}
+
+/** Porcentaje de descuento (0-100) que corresponde a la cantidad de packs equivalentes. */
+export function resolveVolumeDiscountPercentage(
   equivalentPacks: number,
-  dbDiscounts: { min: number, factor: number }[] = []
+  dbDiscounts: VolumeDiscountRule[] = []
 ): number {
   const discounts = dbDiscounts.length > 0 ? dbDiscounts : DEFAULT_VOLUME_DISCOUNTS;
   const sortedDiscounts = [...discounts].sort((a, b) => b.min - a.min);
   const discountEntry = sortedDiscounts.find(d => equivalentPacks >= d.min);
-  return discountEntry ? discountEntry.factor : 1;
+  return discountEntry ? discountEntry.discount_percentage : 0;
 }
 
 /** Proyección mínima para listados (Summary) - Evita overfetching (B4) */
 export const PRODUCT_SUMMARY_SELECT = `
-  id, name, slug, description, detail, active, cost_usd, cost_currency, units_per_pack_master, diameter_cm, height_cm, volume_cc, created_at,
+  id, name, slug, description, detail, active, cost_usd, cost_currency, units_per_pack_master, stock_units, diameter_cm, height_cm, volume_cc, created_at,
   product_categories (
     categories (
       id, name, slug
     )
   ),
   product_variants (
-    id, sku, stock, units_per_pack, is_active, deleted_at, has_packaging
+    id, sku, units_per_pack, is_active, deleted_at, has_packaging
   ),
   product_images (
     image_url, position
@@ -38,14 +65,14 @@ export const PRODUCT_SUMMARY_SELECT = `
 
 /** Proyección completa para detalle */
 export const PRODUCT_DETAIL_SELECT = `
-  id, name, slug, description, detail, active, cost_usd, cost_currency, units_per_pack_master, diameter_cm, height_cm, volume_cc, created_at, updated_at,
+  id, name, slug, description, detail, active, cost_usd, cost_currency, units_per_pack_master, stock_units, diameter_cm, height_cm, volume_cc, created_at, updated_at,
   product_categories (
     categories (
       id, name, slug, parent_id
     )
   ),
   product_variants (
-    id, sku, stock, units_per_pack, is_active, deleted_at, has_packaging
+    id, sku, units_per_pack, is_active, deleted_at, has_packaging
   ),
   product_images (
     id, image_url, position
@@ -59,7 +86,7 @@ export function cleanProduct(
   embalageCost: number = EMBALAJE_COST,
   quantity: number = 1,
   dbTaxes: TaxRule[] = [],
-  dbDiscounts: { min: number, factor: number }[] = [],
+  dbDiscounts: VolumeDiscountRule[] = [],
   packagingCost: number = 0
 ): CleanProduct {
   if (!product) throw new Error("cleanProduct: product is undefined");
@@ -81,9 +108,9 @@ export function cleanProduct(
       const presentation_quantity = Number(v.units_per_pack) || 1;
 
       const equivalentPacks = (presentation_quantity * quantity) / units_per_pack_master;
-      const discountFactor = resolveVolumeDiscountFactor(equivalentPacks, discounts);
+      const discountPercentage = resolveVolumeDiscountPercentage(equivalentPacks, discounts);
 
-      const costUsdMasterWithDiscount = round(cost_usd_master / discountFactor);
+      const costUsdMasterWithDiscount = round(cost_usd_master * (1 - discountPercentage / 100));
       const markup_val = Number(markupMinorista) || 0;
 
       const v2Result = calculatePriceV2({
@@ -98,7 +125,8 @@ export function cleanProduct(
         packaging_cost: v.has_packaging ? packagingCost : 0
       });
 
-      const stockUnits = Number(v.stock) || 0;
+      // Presentaciones que se pueden armar con el stock en unidades del producto.
+      const availablePacks = Math.floor((Number(product.stock_units) || 0) / presentation_quantity);
 
       const ivaRule = taxes.find(t => t.name.toUpperCase() === 'IVA' && t.is_active);
       const vat_included = ivaRule ? ivaRule.is_computable : false;
@@ -114,7 +142,7 @@ export function cleanProduct(
         price_usd: price_usd_val,
         price_ars: price_ars_val,
         markup_percentage: markup_val,
-        stock: stockUnits,
+        stock: availablePacks,
         sku: v.sku,
         units_per_pack: presentation_quantity,
         vat_included,

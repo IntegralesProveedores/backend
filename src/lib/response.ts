@@ -36,3 +36,14 @@ export function errorResponse(message: string, status = 500, details?: any) {
     status 
   }, status, 0);
 }
+
+/** 409: el total cambió desde que el cliente lo vio. El frontend refresca precios y pide confirmar de nuevo. */
+export function priceChangedResponse(currentTotalArs: number, expectedTotalArs: number) {
+  console.warn(JSON.stringify({ event: "price_changed", current_total_ars: currentTotalArs, expected_total_ars: expectedTotalArs }));
+  return jsonResponse({
+    error: "price_changed",
+    status: 409,
+    current_total_ars: currentTotalArs,
+    expected_total_ars: expectedTotalArs
+  }, 409, 0);
+}

@@ -1,20 +1,28 @@
-import { errorResponse, jsonResponse } from "../lib/response";
+import { errorResponse, jsonResponse, priceChangedResponse } from "../lib/response";
 import { parseCreatePaymentInput, PaymentInputError } from "../lib/payment-input.validation";
 import { PaymentService } from "../services/mercadopago-checkout.service";
-import { OrderQuoteError } from "../services/order-quote.service";
+import { OrderQuoteError, PriceChangedError } from "../services/order-quote.service";
 import { RouteContext } from "../lib/router";
 import { enforceRateLimit } from "../lib/rate-limit";
+import { verifyTurnstile } from "../lib/turnstile";
+import { readJsonBody } from "../lib/request";
 
 export async function handleCreatePayment({ request, env }: RouteContext): Promise<Response> {
   const limited = await enforceRateLimit(env, request, "payments/create");
   if (limited) return limited;
 
   try {
-    const body = await request.json() as unknown;
+    const body = await readJsonBody(request);
+    if (!body || typeof body !== "object") return errorResponse("Invalid JSON body", 400);
+
+    const captchaFailure = await verifyTurnstile(env, request, (body as { turnstile_token?: unknown }).turnstile_token);
+    if (captchaFailure) return captchaFailure;
+
     const input = parseCreatePaymentInput(body);
     const result = await new PaymentService(env).createCheckout(input);
     return jsonResponse(result);
   } catch (error: unknown) {
+    if (error instanceof PriceChangedError) return priceChangedResponse(error.currentTotalArs, error.expectedTotalArs);
     if (error instanceof PaymentInputError || error instanceof OrderQuoteError) {
       return errorResponse(error.message, 400);
     }

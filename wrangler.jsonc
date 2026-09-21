@@ -23,6 +23,9 @@
 		"SUPABASE_URL": "https://afzkyxpyoxafoqldfwjf.supabase.co",
 		"APP_BASE_URL": "https://brotalia.com.ar"
 	},
+	"triggers": {
+		"crons": ["17 * * * *"]
+	},
 	"kv_namespaces": [
 		{
 			"binding": "PRICING_CACHE",

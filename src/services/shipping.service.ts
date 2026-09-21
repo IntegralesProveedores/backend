@@ -1,6 +1,5 @@
 import { getSupabase } from "./db";
-import { getPricingConfig } from "./settings";
-import { ShippingInput } from "../lib/payment-input.validation";
+import { getShippingPriceBufferPercentage } from "./settings";
 
 // ─────────────────────────────────────────────────────────────
 // QUÉ HACE: Resolución de zona/tarifa/plan de cajas de envío.
@@ -40,7 +39,7 @@ export async function resolveShippingBoxPlan(
   if (productGroups.length === 0) return { boxes: [], totalPriceArs: 0 };
 
   const supabase = getSupabase(env);
-  const { shippingPriceBufferPercentage } = await getPricingConfig(env);
+  const shippingPriceBufferPercentage = await getShippingPriceBufferPercentage(env);
   const bufferFactor = 1 + shippingPriceBufferPercentage / 100;
   const result = { boxes: [] as ShippingBox[], totalPriceArs: 0 };
   for (const group of productGroups) {
@@ -107,26 +106,52 @@ function extractPostalCodeDigits(rawPostalCode: string): string | null {
   return /^\d{4}$/.test(digits) ? digits : null;
 }
 
+const normalizeProvince = (value: string): string =>
+  value.normalize("NFD").replace(/[̀-ͯ]/g, "").trim().toLowerCase();
+
+/**
+ * Elige la provincia de un código postal. Hay códigos de 4 dígitos que
+ * pertenecen a más de una provincia (ej. 2400: Córdoba y Santa Fe) y la zona
+ * de envío sale de la provincia, así que la elección tiene que ser
+ * determinística y coincidir con la que ve el cliente (GET /postal-code/:cp,
+ * que usa el mismo orden). Si el cliente ya tiene una provincia cargada y es
+ * una de las del código, se respeta; si no, la primera de la lista ordenada.
+ */
+export function pickPostalCodeProvince(
+  rows: Array<{ province: string | null }>,
+  preferredProvince?: string | null
+): string | null {
+  const provinces = rows.map(row => row.province).filter((province): province is string => !!province);
+  if (preferredProvince) {
+    const wanted = normalizeProvince(preferredProvince);
+    const match = provinces.find(province => normalizeProvince(province) === wanted);
+    if (match) return match;
+  }
+  return provinces[0] ?? null;
+}
+
 export async function resolveShippingRate(
   env: Env,
   postalCode: string,
-  productGroups: ProductGroup[]
+  productGroups: ProductGroup[],
+  preferredProvince?: string | null
 ): Promise<ShippingResolution | null> {
   const supabase = getSupabase(env);
   const normalizedPostalCode = extractPostalCodeDigits(postalCode);
   if (!normalizedPostalCode) return null;
 
   // 1) Fuente de verdad: buscar la provincia real por código postal exacto
-  const { data: postalData, error: postalError } = await supabase
+  const { data: postalRows, error: postalError } = await supabase
     .from("postal_codes_ar")
     .select("province")
     .eq("postal_code", normalizedPostalCode)
-    .limit(1)
-    .maybeSingle();
+    .order("created_at", { ascending: true })
+    .order("province", { ascending: true })
+    .order("id", { ascending: true });
 
   if (postalError) throw new Error(`Unable to resolve province for postal code: ${postalError.message}`);
 
-  let zoneName = postalData?.province ?? null;
+  let zoneName = pickPostalCodeProvince(postalRows ?? [], preferredProvince);
 
   // 2) Fallback: si el código postal no está cargado en postal_codes_ar,
   //    usamos el esquema anterior por rango (CABA_PBA / RESTO_PAIS) para no romper el checkout.
@@ -155,15 +180,4 @@ export async function resolveShippingRate(
     boxes: boxPlan.boxes,
     boxCount: boxPlan.boxes.reduce((sum, box) => sum + box.count, 0)
   };
-}
-
-export async function getShippingPriceArs(
-  env: Env,
-  shipping: ShippingInput,
-  productGroups: ProductGroup[]
-): Promise<number> {
-  if (shipping.method === "pickup" || shipping.method === "coordinar") return 0;
-  if (!shipping.address?.postal_code) return 0;
-  const resolution = await resolveShippingRate(env, shipping.address.postal_code, productGroups);
-  return resolution?.priceArs ?? 0;
 }

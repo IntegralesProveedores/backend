@@ -8,36 +8,6 @@ function normalizePaymentId(value: unknown): string | null {
   return null;
 }
 
-async function readWebhookPaymentId(request: Request, url: URL): Promise<string | null> {
-  const queryDataId = normalizePaymentId(url.searchParams.get("data.id"));
-  if (queryDataId) return queryDataId;
-
-  const queryId = normalizePaymentId(url.searchParams.get("id"));
-  if (queryId) return queryId;
-
-  const contentType = request.headers.get("content-type") ?? "";
-  const bodyText = await request.text();
-  if (!bodyText.trim()) return null;
-
-  if (contentType.includes("application/json")) {
-    try {
-      const parsed = JSON.parse(bodyText) as Record<string, unknown>;
-      const bodyData = parsed.data;
-      if (bodyData && typeof bodyData === "object") {
-        const bodyDataId = normalizePaymentId((bodyData as Record<string, unknown>)["id"]);
-        if (bodyDataId) {
-          return bodyDataId;
-        }
-      }
-    } catch {
-      return null;
-    }
-  }
-
-  const formData = new URLSearchParams(bodyText);
-  return normalizePaymentId(formData.get("data.id") ?? formData.get("data[id]") ?? formData.get("id"));
-}
-
 export async function handleMercadoPagoWebhook({ request, env, url }: RouteContext): Promise<Response> {
   const startedAt = Date.now();
   const topic = url.searchParams.get("topic");
@@ -61,7 +31,9 @@ export async function handleMercadoPagoWebhook({ request, env, url }: RouteConte
 
   const requestId = request.headers.get("x-request-id");
   const xSignature = request.headers.get("x-signature");
-  const paymentId = await readWebhookPaymentId(request, url);
+  // El handler ya exigió `data.id` en la query (formato actual de MP), y es el
+  // mismo valor que entra en la firma; no se lee del body.
+  const paymentId = normalizePaymentId(url.searchParams.get("data.id"));
 
   try {
     const paymentService = new PaymentService(env);

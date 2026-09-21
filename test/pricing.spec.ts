@@ -144,3 +144,60 @@ describe('Pricing Engine V2 - Packaging diferenciado', () => {
     expect(con.precio_final_ars).toBeCloseTo(sin.precio_final_ars + 1200 * 1.6, 1);
   });
 });
+
+describe('descuento por volumen en porcentaje', () => {
+  it('resuelve el % según los packs equivalentes', async () => {
+    const { resolveVolumeDiscountPercentage } = await import('../src/lib/products');
+    expect(resolveVolumeDiscountPercentage(1)).toBe(0);
+    expect(resolveVolumeDiscountPercentage(2.9)).toBe(0);
+    expect(resolveVolumeDiscountPercentage(3)).toBe(5);
+    expect(resolveVolumeDiscountPercentage(6)).toBe(10);
+    expect(resolveVolumeDiscountPercentage(11)).toBe(15);
+    expect(resolveVolumeDiscountPercentage(21)).toBe(20);
+    expect(resolveVolumeDiscountPercentage(31)).toBe(25);
+    expect(resolveVolumeDiscountPercentage(500)).toBe(25);
+  });
+
+  it('un 25% de descuento baja el costo exactamente 25% (no 20%)', () => {
+    const cost = 70;
+    expect(round2(cost * (1 - 25 / 100))).toBe(52.5);
+  });
+});
+
+function round2(v: number) { return Math.round((v + Number.EPSILON) * 100) / 100; }
+
+describe('precio sin impuestos', () => {
+  it('es el precio final menos solo el IVA (incluye embalaje y packaging)', () => {
+    const base = {
+      cost_usd_master: 47,
+      units_per_pack_master: 500,
+      presentation_quantity: 25,
+      exchange_rate: 1535,
+      rentability_percentage: 60,
+      taxes: DEFAULT_TAX_RULES,
+      embalaje_cost: 760,
+      packaging_cost: 2000
+    };
+    const conIva = calculatePriceV2(base);
+    const sinIva = calculatePriceV2({ ...base, taxes: [] });
+    expect(conIva.precio_sin_impuestos_ars).toBeCloseTo(sinIva.precio_final_ars, 1);
+    expect(conIva.precio_sin_impuestos_ars).toBeLessThan(conIva.precio_final_ars);
+  });
+});
+
+describe('comisión de Mercado Pago', () => {
+  it('se redondea a pesos enteros (coincide con lo que muestra el carrito)', async () => {
+    const { calculateOrderCommission } = await import('../src/lib/pricing');
+    const r = calculateOrderCommission(16400, 12062, 'mercadopago', 10);
+    expect(r.paymentCommissionAmount).toBe(2846); // 2846,20 -> 2846
+    expect(r.totalConComision).toBe(31308);
+    expect(Number.isInteger(r.totalConComision)).toBe(true);
+  });
+
+  it('con transferencia no hay comisión', async () => {
+    const { calculateOrderCommission } = await import('../src/lib/pricing');
+    const r = calculateOrderCommission(16400, 12062, 'transferencia', 10);
+    expect(r.paymentCommissionAmount).toBe(0);
+    expect(r.totalConComision).toBe(28462);
+  });
+});

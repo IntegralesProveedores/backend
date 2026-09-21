@@ -14,6 +14,7 @@ import { handleMercadoPagoWebhook } from "./routes/webhooks";
 import { handleCreatePayment } from "./routes/payments";
 import { handlePostalCode } from "./routes/postal-code";
 import { handleShippingQuote } from "./routes/shipping";
+import { releaseAbandonedOrders } from "./services/stock-release.service";
 
 const CORS_HEADERS = {
   "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
@@ -45,6 +46,13 @@ function withCors(request: Request, response: Response): Response {
   });
 }
 
+function sanitizeEnv(env: any): any {
+  return Object.keys(env).reduce((acc: any, key) => {
+    acc[key] = typeof env[key] === "string" ? env[key].trim() : env[key];
+    return acc;
+  }, {});
+}
+
 const router = new Router();
 
 router.get("/products", handleProducts);
@@ -70,10 +78,7 @@ export default {
 
     const hostHeader = (request.headers.get("host") || "").toLowerCase();
 
-    const sanitizedEnv = Object.keys(env).reduce((acc: any, key) => {
-      acc[key] = typeof env[key] === "string" ? env[key].trim() : env[key];
-      return acc;
-    }, {});
+    const sanitizedEnv = sanitizeEnv(env);
 
     try {
       const response = await router.handle(request, sanitizedEnv);
@@ -87,5 +92,14 @@ export default {
         })
       );
     }
+  },
+
+  // Cron (wrangler.jsonc > triggers): cancela órdenes pendientes abandonadas y devuelve su stock.
+  async scheduled(_controller: ScheduledController, env: any, ctx: ExecutionContext) {
+    ctx.waitUntil(
+      releaseAbandonedOrders(sanitizeEnv(env)).catch(error => {
+        console.error(JSON.stringify({ event: "stock_release_run_failed", message: String(error) }));
+      })
+    );
   }
 };

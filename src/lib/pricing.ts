@@ -67,7 +67,8 @@ export function calculatePriceV2(input: PricingInput): PricingOutput {
 
   // c. Precio unitario base
   const precio_unitario_base = precio_bulto_ars / units_per_pack_master;
-  const precio_sin_impuestos_ars = round(precio_unitario_base * presentation_quantity * (1 + rentability_percentage / 100));
+  // Precio final descontando solo los impuestos computables: incluye embalaje y packaging.
+  const precio_sin_impuestos_ars = round((precio_unitario_base * presentation_quantity + embalaje_cost + packaging_cost) * (1 + rentability_percentage / 100));
 
   // d. Cálculo de tributos y costo unitario computable
   let costo_unitario_computable = precio_unitario_base;
@@ -125,7 +126,8 @@ export function calculateOrderCommission(
   if (paymentMethod === 'transferencia' || commissionPercentageConfig <= 0) {
     return { paymentCommissionPercentage: 0, paymentCommissionAmount: 0, totalConComision: base };
   }
-  const paymentCommissionAmount = round(base * (commissionPercentageConfig / 100));
+  // Pesos enteros, igual que el carrito del frontend: lo que se ve es lo que se cobra.
+  const paymentCommissionAmount = Math.round(base * (commissionPercentageConfig / 100));
   return {
     paymentCommissionPercentage: commissionPercentageConfig,
     paymentCommissionAmount,

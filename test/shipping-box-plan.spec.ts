@@ -6,6 +6,9 @@ vi.mock("../src/services/db", () => ({ getSupabase: vi.fn() }));
 
 const getSupabaseMock = vi.mocked(getSupabase);
 
+/** % del medio de pago que el mock devuelve en pricing_settings (0 = precios de envío "planos"). */
+let paymentFeePercentage = 0;
+
 const BOX_ASSIGNMENTS = [
   { box_model_id: "small", min_quantity: 1, max_quantity: 333 },
   { box_model_id: "medium", min_quantity: 334, max_quantity: 666 },
@@ -48,7 +51,10 @@ function makeQuery(table: string) {
     then: (resolve: (value: unknown) => unknown, reject?: (reason: unknown) => unknown) => {
       let data: unknown[] = [];
       if (table === "pricing_settings") {
-        data = [{ key: "shipping_price_buffer_percentage", value: 0 }];
+        data = [
+          { key: "shipping_price_buffer_percentage", value: 0 },
+          { key: "payment_commission_percentage", value: paymentFeePercentage }
+        ];
       } else if (table === "pricing_shipping_box_assignments") {
         data = BOX_ASSIGNMENTS;
       } else if (table === "pricing_shipping_rates") {
@@ -109,5 +115,15 @@ describe("resolveShippingBoxPlan", () => {
   it("falla explícitamente cuando la zona no tiene tarifas activas", async () => {
     await expect(resolveShippingBoxPlan({} as Env, "SIN_TARIFA", [{ product_id: "00000000-0000-4000-8000-000000000001", units: 50 }]))
       .rejects.toThrow('No active shipping rates found for zone "SIN_TARIFA"');
+  });
+
+  it("el envío también lleva el costo del medio de pago (10% => precio / 0,9)", async () => {
+    paymentFeePercentage = 10;
+    try {
+      const result = await resolveShippingBoxPlan({} as Env, "CABA_PBA", [{ product_id: "00000000-0000-4000-8000-000000000001", units: 100 }]);
+      expect(result.totalPriceArs).toBe(Math.round(13000 / 0.9));
+    } finally {
+      paymentFeePercentage = 0;
+    }
   });
 });

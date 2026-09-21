@@ -1,5 +1,5 @@
 import { getSupabase } from "./db";
-import { calculateOrderCommission } from "../lib/pricing";
+import { calculateOrderPayment } from "../lib/pricing";
 import {
   MercadoPagoPayer,
   MercadoPagoPaymentResponse,
@@ -53,13 +53,13 @@ export class PaymentService {
 
     const supabase = getSupabase(this.env);
     const quote = await buildOrderQuote(this.env, input.items, input.shipping);
-    const commission = calculateOrderCommission(
-      quote.subtotalArs,
+    const payment = calculateOrderPayment(
+      quote.subtotalArs + quote.embalajeArs,
       quote.shippingArs,
       "mercadopago",
       quote.paymentCommissionPercentage
     );
-    assertExpectedTotal(input.expected_total_ars, commission.totalConComision);
+    assertExpectedTotal(input.expected_total_ars, payment.total);
     const externalReference = crypto.randomUUID();
     const createdOrder = await createOrderRecord(
       this.env,
@@ -79,14 +79,15 @@ export class PaymentService {
       externalReference,
       input.shipping,
       quote.shippingArs,
+      quote.embalajeArs,
       "mercadopago",
-      commission.paymentCommissionPercentage,
-      commission.paymentCommissionAmount
+      payment.paymentDiscountPercentage,
+      payment.paymentDiscountAmount
     );
 
     try {
       const preference = await this.mercadoPago.createPreference(
-        this.buildPreference(input, quote, externalReference, createdOrder.id, commission.paymentCommissionAmount)
+        this.buildPreference(input, quote, externalReference, createdOrder.id)
       );
 
       // El stock se descuenta al confirmar el pedido (botón Pagar), sin esperar
@@ -287,8 +288,7 @@ export class PaymentService {
     input: CreatePaymentInput,
     quote: OrderQuote,
     externalReference: string,
-    orderId: string,
-    paymentCommissionAmount = 0
+    orderId: string
   ): MercadoPagoPreferenceRequest {
     const now = new Date();
     const expiration = new Date(now.getTime() + 24 * 60 * 60 * 1000);
@@ -340,13 +340,13 @@ export class PaymentService {
           currency_id: "ARS" as const,
           unit_price: quote.shippingArs
         }] : []),
-        ...(paymentCommissionAmount > 0 ? [{
-          id: "payment-commission",
-          title: "Comisión de pago",
-          description: "Mercado Pago",
+        ...(quote.embalajeArs > 0 ? [{
+          id: "packaging",
+          title: "Embalaje",
+          description: `${quote.packagingBoxes.reduce((sum, box) => sum + box.count, 0)} caja(s)`,
           quantity: 1,
           currency_id: "ARS" as const,
-          unit_price: paymentCommissionAmount
+          unit_price: quote.embalajeArs
         }] : [])
       ],
       metadata: {

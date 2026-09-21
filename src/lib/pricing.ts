@@ -1,4 +1,3 @@
-export const EMBALAJE_COST = 745.56;
 export const round = (val: number) => Math.round((val + Number.EPSILON) * 100) / 100;
 
 export interface TaxRule {
@@ -18,10 +17,13 @@ export interface PricingInput {
   exchange_rate: number;
   rentability_percentage: number;
   taxes?: TaxRule[];
-  /** Costo fijo de embalaje a aplicar (opcional, fallback a EMBALAJE_COST) */
+  /** Embalaje sumado al precio. 0 por defecto: el embalaje se cobra por caja en la orden (ver embalajeBoxPriceArs). */
   embalaje_cost?: number;
   /** Costo de packaging diferenciado: se suma solo si la presentación lo lleva (default 0) */
   packaging_cost?: number;
+  /** % que cobra el medio de pago (Mercado Pago). Todo el precio se divide por (1 − %) para que, con el
+   *  descuento equivalente por transferencia, el vendedor cobre exactamente el precio sin recargo. */
+  payment_gross_up_percentage?: number;
 }
 
 export interface PricingOutput {
@@ -35,6 +37,24 @@ export interface PricingOutput {
     monto: number;
     es_computable: boolean;
   }[];
+}
+
+/** Factor por el que se multiplican precios y envío: 1 / (1 − % del medio de pago). Con 10% → 1,1111. */
+export function paymentGrossUpFactor(paymentFeePercentage: number): number {
+  if (!Number.isFinite(paymentFeePercentage) || paymentFeePercentage <= 0 || paymentFeePercentage >= 100) return 1;
+  return 100 / (100 - paymentFeePercentage);
+}
+
+/**
+ * Precio de lista de UNA caja de embalaje: costo fijo × (1 + margen), con el costo del medio de
+ * pago incluido. Se cobra por caja del pedido (una o más cajas por modelo), no por pack.
+ */
+export function embalajeBoxPriceArs(
+  embalajeCost: number,
+  markupPercentage: number,
+  paymentFeePercentage: number
+): number {
+  return Math.round(embalajeCost * (1 + markupPercentage / 100) * paymentGrossUpFactor(paymentFeePercentage));
 }
 
 /**
@@ -56,10 +76,12 @@ export function calculatePriceV2(input: PricingInput): PricingOutput {
     exchange_rate,
     rentability_percentage,
     taxes = [],
-    embalaje_cost = EMBALAJE_COST,
+    embalaje_cost = 0,
     packaging_cost = 0,
-    cost_currency = 'USD'
+    cost_currency = 'USD',
+    payment_gross_up_percentage = 0
   } = input;
+  const paymentGrossUp = paymentGrossUpFactor(payment_gross_up_percentage);
 
   // a & b. Precio bulto maestro en pesos
   const effectiveRate = cost_currency === 'ARS' ? 1 : exchange_rate;
@@ -68,7 +90,7 @@ export function calculatePriceV2(input: PricingInput): PricingOutput {
   // c. Precio unitario base
   const precio_unitario_base = precio_bulto_ars / units_per_pack_master;
   // Precio final descontando solo los impuestos computables: incluye embalaje y packaging.
-  const precio_sin_impuestos_ars = round((precio_unitario_base * presentation_quantity + embalaje_cost + packaging_cost) * (1 + rentability_percentage / 100));
+  const precio_sin_impuestos_ars = round((precio_unitario_base * presentation_quantity + embalaje_cost + packaging_cost) * (1 + rentability_percentage / 100) * paymentGrossUp);
 
   // d. Cálculo de tributos y costo unitario computable
   let costo_unitario_computable = precio_unitario_base;
@@ -96,7 +118,7 @@ export function calculatePriceV2(input: PricingInput): PricingOutput {
   const costo_total_operativo = costo_presentacion + embalaje_cost + packaging_cost;
 
   // g. Precio de venta final (Aplicando rentabilidad neta)
-  const precio_final_ars = costo_total_operativo * (1 + rentability_percentage / 100);
+  const precio_final_ars = costo_total_operativo * (1 + rentability_percentage / 100) * paymentGrossUp;
 
   // Redondeo final a 2 decimales para precisión interna, 
   // la UI decidirá si redondea a entero.
@@ -110,28 +132,35 @@ export function calculatePriceV2(input: PricingInput): PricingOutput {
   };
 }
 
-export interface OrderCommissionResult {
-  paymentCommissionPercentage: number;
-  paymentCommissionAmount: number;
-  totalConComision: number;
+/** Resultado del medio de pago sobre el total de la orden. */
+export interface OrderPaymentResult {
+  /** % de descuento por pagar con transferencia (0 con otros medios). */
+  paymentDiscountPercentage: number;
+  paymentDiscountAmount: number;
+  /** Total a cobrar: subtotal + envío − descuento. */
+  total: number;
 }
 
-export function calculateOrderCommission(
+/**
+ * Los precios de lista ya incluyen el costo del medio de pago (ver
+ * `paymentGrossUpFactor`), así que Mercado Pago cobra el total de lista y la
+ * transferencia recibe un descuento del `paymentFeePercentage` % sobre ese total.
+ * Pesos enteros: lo que se ve es lo que se cobra.
+ */
+export function calculateOrderPayment(
   subtotalArs: number,
   shippingArs: number,
   paymentMethod: 'mercadopago' | 'transferencia',
-  commissionPercentageConfig: number
-): OrderCommissionResult {
+  paymentFeePercentage: number
+): OrderPaymentResult {
   const base = round(subtotalArs + shippingArs);
-  if (paymentMethod === 'transferencia' || commissionPercentageConfig <= 0) {
-    return { paymentCommissionPercentage: 0, paymentCommissionAmount: 0, totalConComision: base };
+  if (paymentMethod !== 'transferencia' || paymentFeePercentage <= 0) {
+    return { paymentDiscountPercentage: 0, paymentDiscountAmount: 0, total: base };
   }
-  // Pesos enteros, igual que el carrito del frontend: lo que se ve es lo que se cobra.
-  const paymentCommissionAmount = Math.round(base * (commissionPercentageConfig / 100));
+  const paymentDiscountAmount = Math.round(base * (paymentFeePercentage / 100));
   return {
-    paymentCommissionPercentage: commissionPercentageConfig,
-    paymentCommissionAmount,
-    totalConComision: round(base + paymentCommissionAmount)
+    paymentDiscountPercentage: paymentFeePercentage,
+    paymentDiscountAmount,
+    total: round(base - paymentDiscountAmount)
   };
 }
-

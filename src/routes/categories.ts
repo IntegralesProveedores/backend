@@ -150,7 +150,7 @@ export async function handleCategoryProducts({ env, params, url, request }: Rout
 
   return jsonResponse({
     category: { ...cleanCategory(category), parent: parent ?? null },
-    items: (products ?? []).map((p: any) => cleanProduct(p, pricingConfig.exchangeRate, pricingConfig.markups.minorista, pricingConfig.embalageCost, 1, taxes, volumeDiscounts, pricingConfig.packagingCost ?? 0)),
+    items: (products ?? []).map((p: any) => cleanProduct(p, pricingConfig.exchangeRate, pricingConfig.markups.minorista, 1, taxes, volumeDiscounts, pricingConfig.packagingCost ?? 0, pricingConfig.paymentCommissionPercentage)),
     pagination: {
       total: count || 0,
       page,

@@ -1,7 +1,7 @@
 import { Router } from "./lib/router";
 import { errorResponse } from "./lib/response";
 import { handleProducts, handleProductBySlug } from "./routes/products";
-import { handleCreateOrder, handleGetOrder } from "./routes/orders";
+import { handleCreateOrder, handleGetOrder, handleAbandonOrder } from "./routes/orders";
 import { handleSitemap } from "./routes/sitemap";
 import {
   handleCategories,
@@ -14,6 +14,7 @@ import { handleMercadoPagoWebhook } from "./routes/webhooks";
 import { handleCreatePayment } from "./routes/payments";
 import { handlePostalCode } from "./routes/postal-code";
 import { handleShippingQuote } from "./routes/shipping";
+import { handlePackagingQuote } from "./routes/packaging";
 import { releaseAbandonedOrders } from "./services/stock-release.service";
 
 const CORS_HEADERS = {
@@ -64,8 +65,10 @@ router.get("/settings", handleSettings);
 router.get("/payment-transfer-info", handlePaymentTransferInfo);
 router.get("/postal-code/:postalCode", handlePostalCode);
 router.post("/shipping/quote", handleShippingQuote);
+router.post("/packaging/quote", handlePackagingQuote);
 router.get("/sitemap.xml", handleSitemap);
 router.post("/orders", handleCreateOrder);
+router.post("/orders/abandon", handleAbandonOrder);
 router.get("/orders/:id", handleGetOrder);
 router.post("/payments/create", handleCreatePayment);
 router.post("/api/webhooks/mercadopago", handleMercadoPagoWebhook);

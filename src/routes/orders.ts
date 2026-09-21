@@ -1,6 +1,6 @@
 import { getSupabase } from "../services/db";
 import { errorResponse, jsonResponse, priceChangedResponse } from "../lib/response";
-import { calculateOrderCommission } from "../lib/pricing";
+import { calculateOrderPayment } from "../lib/pricing";
 import { createOrderRecord } from "../services/orders.repository";
 import {
   parseShippingInput,
@@ -17,6 +17,7 @@ import { sendTransferOrderConfirmationEmail } from "../services/email/order-conf
 import { enforceRateLimit } from "../lib/rate-limit";
 import { verifyTurnstile } from "../lib/turnstile";
 import { readJsonBody } from "../lib/request";
+import { abandonMercadoPagoOrder } from "../services/stock-release.service";
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -100,10 +101,10 @@ export async function handleCreateOrder({ request, env }: { request: Request; en
     }
 
     const paymentMethod = body.payment_method;
-    const commission = calculateOrderCommission(quote.subtotalArs, quote.shippingArs, paymentMethod, quote.paymentCommissionPercentage);
+    const payment = calculateOrderPayment(quote.subtotalArs + quote.embalajeArs, quote.shippingArs, paymentMethod, quote.paymentCommissionPercentage);
 
     try {
-      assertExpectedTotal(parseExpectedTotal(body.expected_total_ars), commission.totalConComision);
+      assertExpectedTotal(parseExpectedTotal(body.expected_total_ars), payment.total);
     } catch (error) {
       if (error instanceof PriceChangedError) return priceChangedResponse(error.currentTotalArs, error.expectedTotalArs);
       if (error instanceof PaymentInputError) return errorResponse(error.message, 400);
@@ -130,9 +131,10 @@ export async function handleCreateOrder({ request, env }: { request: Request; en
       orderRef,
       shipping,
       quote.shippingArs,
+      quote.embalajeArs,
       paymentMethod,
-      commission.paymentCommissionPercentage,
-      commission.paymentCommissionAmount
+      payment.paymentDiscountPercentage,
+      payment.paymentDiscountAmount
     );
 
     if (paymentMethod === "transferencia") {
@@ -168,13 +170,15 @@ export async function handleCreateOrder({ request, env }: { request: Request; en
         })),
         shipping,
         shippingAmountArs: quote.shippingArs,
-        shippingBoxes: quote.shippingBoxes,
-        totalArs: commission.totalConComision,
+        packagingBoxes: quote.packagingBoxes,
+        embalajeAmountArs: quote.embalajeArs,
+        totalArs: payment.total,
         volumeDiscountPercentage,
         vatLabel,
-        // El resumen del checkout muestra el % de comisión de MP que se ahorra
-        // pagando por transferencia; la comisión efectiva de esta orden es 0.
-        transferSavingsPercentage: quote.paymentCommissionPercentage
+        transferDiscount: {
+          percentage: payment.paymentDiscountPercentage,
+          amountArs: payment.paymentDiscountAmount
+        }
       });
     }
 
@@ -199,15 +203,16 @@ export async function handleCreateOrder({ request, env }: { request: Request; en
           units_per_pack_master: item.units_per_pack_master
         }
       })),
-      total_ars: commission.totalConComision,
+      total_ars: payment.total,
       shipping_ars: quote.shippingArs,
+      embalaje_ars: quote.embalajeArs,
       // Total real (productos + envío + comisión) en USD; antes era solo el subtotal de productos.
-      total_usd: Math.round((commission.totalConComision / quote.exchangeRate + Number.EPSILON) * 100) / 100,
+      total_usd: Math.round((payment.total / quote.exchangeRate + Number.EPSILON) * 100) / 100,
       exchange_rate: quote.exchangeRate,
       order_ref: orderRef,
       payment_method: paymentMethod,
-      payment_commission_percentage: commission.paymentCommissionPercentage,
-      payment_commission_amount: commission.paymentCommissionAmount,
+      payment_discount_percentage: payment.paymentDiscountPercentage,
+      payment_discount_amount: payment.paymentDiscountAmount,
       customer: {
         nombre: customer.nombre,
         email: customer.email,
@@ -218,6 +223,28 @@ export async function handleCreateOrder({ request, env }: { request: Request; en
     });
   } catch (e: any) {
     return errorResponse("Unable to create order", 500, { original_message: e.message, stack: e.stack });
+  }
+}
+
+/**
+ * El cliente volvió de Mercado Pago sin pagar: cancela la orden y devuelve el stock.
+ * `external_reference` es un UUID aleatorio que solo conoce quien inició el pago.
+ * Responde siempre 200 con `cancelled` para no revelar si la orden existe.
+ */
+export async function handleAbandonOrder({ request, env }: { request: Request; env: any }) {
+  const limited = await enforceRateLimit(env, request, "orders/abandon");
+  if (limited) return limited;
+
+  const body = await readJsonBody(request) as { external_reference?: unknown } | null;
+  const externalReference = body?.external_reference;
+  if (typeof externalReference !== "string" || !UUID_REGEX.test(externalReference)) {
+    return errorResponse("Invalid external_reference", 400);
+  }
+
+  try {
+    return jsonResponse({ cancelled: await abandonMercadoPagoOrder(env, externalReference) });
+  } catch (e: any) {
+    return errorResponse("Unable to release the order", 500, { original_message: e.message, stack: e.stack });
   }
 }
 
@@ -239,7 +266,7 @@ export async function handleGetOrder({ env, params, request }: { env: any; param
   const [orderResult, itemsResult] = await Promise.all([
     supabase
       .from("orders")
-      .select("status, payment_status, shipping_status, subtotal_amount, shipping_amount, total_amount, payment_commission_percentage, payment_commission_amount, external_reference, created_at")
+      .select("status, payment_status, shipping_status, subtotal_amount, shipping_amount, total_amount, payment_discount_percentage, payment_discount_amount, external_reference, created_at")
       .eq("id", orderId)
       .single(),
     supabase.from("order_items").select("*").eq("order_id", orderId)
@@ -271,8 +298,8 @@ export async function handleGetOrder({ env, params, request }: { env: any; param
       subtotal_ars: order.subtotal_amount,
       shipping_ars: order.shipping_amount,
       total_ars: order.total_amount,
-      payment_commission_percentage: order.payment_commission_percentage,
-      payment_commission_amount: order.payment_commission_amount
+      payment_discount_percentage: order.payment_discount_percentage,
+      payment_discount_amount: order.payment_discount_amount
     }
   });
 }

@@ -35,7 +35,8 @@ describe('Pricing Engine V2 - Shadow Mode Validation', () => {
         presentation_quantity: units, // Probamos con el bulto completo
         exchange_rate: EXCHANGE_RATE,
         rentability_percentage: RENTABILITY,
-        taxes: DEFAULT_TAX_RULES
+        taxes: DEFAULT_TAX_RULES,
+        embalaje_cost: 745.56
       });
 
       // Verificaciones determinísticas
@@ -87,7 +88,8 @@ describe('Pricing Engine V2 - Shadow Mode Validation', () => {
         presentation_quantity: 25, // Presentación pequeña
         exchange_rate: EXCHANGE_RATE,
         rentability_percentage: RENTABILITY,
-        taxes: DEFAULT_TAX_RULES
+        taxes: DEFAULT_TAX_RULES,
+        embalaje_cost: 745.56
       });
 
       // (47 * 1450 / 500) * 25 = 3407.50
@@ -111,7 +113,8 @@ describe('Pricing Engine V2 - Shadow Mode Validation', () => {
         rentability_percentage: 0,
         taxes: [
           { name: 'Importación', percentage: 10, is_computable: true, is_active: true }
-        ]
+        ],
+        embalaje_cost: 745.56
       });
 
       // Costo 100 + 10 (impuesto) + 745.56 (embalaje) = 855.56
@@ -185,19 +188,82 @@ describe('precio sin impuestos', () => {
   });
 });
 
-describe('comisión de Mercado Pago', () => {
-  it('se redondea a pesos enteros (coincide con lo que muestra el carrito)', async () => {
-    const { calculateOrderCommission } = await import('../src/lib/pricing');
-    const r = calculateOrderCommission(16400, 12062, 'mercadopago', 10);
-    expect(r.paymentCommissionAmount).toBe(2846); // 2846,20 -> 2846
-    expect(r.totalConComision).toBe(31308);
-    expect(Number.isInteger(r.totalConComision)).toBe(true);
+describe('costo del medio de pago dentro del precio (Mercado Pago / transferencia)', () => {
+  const olivo25 = {
+    cost_usd_master: 47,
+    units_per_pack_master: 500,
+    presentation_quantity: 25,
+    exchange_rate: 1535,
+    rentability_percentage: 60,
+    taxes: DEFAULT_TAX_RULES,
+    embalaje_cost: 760
+  };
+
+  it('sin recargo el olivo x25 sigue en $8.200', () => {
+    expect(Math.round(calculatePriceV2(olivo25).precio_final_ars)).toBe(8200);
   });
 
-  it('con transferencia no hay comisión', async () => {
-    const { calculateOrderCommission } = await import('../src/lib/pricing');
-    const r = calculateOrderCommission(16400, 12062, 'transferencia', 10);
-    expect(r.paymentCommissionAmount).toBe(0);
-    expect(r.totalConComision).toBe(28462);
+  it('con 10% el precio de lista es 8.200 / 0,9 = $9.111', () => {
+    const lista = Math.round(calculatePriceV2({ ...olivo25, payment_gross_up_percentage: 10 }).precio_final_ars);
+    expect(lista).toBe(9111);
+  });
+
+  it('transferencia: el descuento del 10% deja exactamente el precio sin recargo', async () => {
+    const { calculateOrderPayment } = await import('../src/lib/pricing');
+    const r = calculateOrderPayment(9111, 0, 'transferencia', 10);
+    expect(r.paymentDiscountAmount).toBe(911);
+    expect(r.total).toBe(8200);
+  });
+
+  it('con envío: lista 2 x 9.111 + 13.402 y transferencia vuelve a 16.400 + 12.062', async () => {
+    const { calculateOrderPayment } = await import('../src/lib/pricing');
+    const r = calculateOrderPayment(2 * 9111, 13402, 'transferencia', 10);
+    expect(r.total).toBe(28462);
+  });
+
+  it('Mercado Pago cobra el total de lista, sin descuento ni comisión aparte', async () => {
+    const { calculateOrderPayment } = await import('../src/lib/pricing');
+    const r = calculateOrderPayment(2 * 9111, 13402, 'mercadopago', 10);
+    expect(r.paymentDiscountAmount).toBe(0);
+    expect(r.total).toBe(2 * 9111 + 13402);
+  });
+
+  it('el factor es 1 con 0% o valores inválidos', async () => {
+    const { paymentGrossUpFactor } = await import('../src/lib/pricing');
+    expect(paymentGrossUpFactor(0)).toBe(1);
+    expect(paymentGrossUpFactor(-5)).toBe(1);
+    expect(paymentGrossUpFactor(100)).toBe(1);
+    expect(paymentGrossUpFactor(10)).toBeCloseTo(1.1111, 4);
+  });
+});
+
+describe('embalaje por caja (no por pack)', () => {
+  const olivo25 = {
+    cost_usd_master: 47,
+    units_per_pack_master: 500,
+    presentation_quantity: 25,
+    exchange_rate: 1535,
+    rentability_percentage: 60,
+    taxes: DEFAULT_TAX_RULES,
+    payment_gross_up_percentage: 10
+  };
+
+  it('el precio del pack ya no incluye embalaje por defecto', () => {
+    const sinEmbalaje = Math.round(calculatePriceV2(olivo25).precio_final_ars);
+    const conEmbalaje = Math.round(calculatePriceV2({ ...olivo25, embalaje_cost: 760 }).precio_final_ars);
+    expect(sinEmbalaje).toBe(7760);
+    expect(conEmbalaje).toBe(9111); // el precio de antes
+  });
+
+  it('una caja de embalaje cuesta 760 x 1,6 / 0,9 = $1.351', async () => {
+    const { embalajeBoxPriceArs } = await import('../src/lib/pricing');
+    expect(embalajeBoxPriceArs(760, 60, 10)).toBe(1351);
+    expect(embalajeBoxPriceArs(760, 60, 0)).toBe(1216);
+  });
+
+  it('con 1 pack (1 caja) el total es el mismo que cuando el embalaje iba en el precio', async () => {
+    const { embalajeBoxPriceArs } = await import('../src/lib/pricing');
+    const pack = Math.round(calculatePriceV2(olivo25).precio_final_ars);
+    expect(pack + embalajeBoxPriceArs(760, 60, 10)).toBe(9111);
   });
 });

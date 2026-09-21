@@ -1,5 +1,5 @@
 import { RawProduct, CleanProduct, CleanVariant, RawCategory } from "./types";
-import { calculatePriceV2, TaxRule, EMBALAJE_COST, round } from "./pricing";
+import { calculatePriceV2, TaxRule, round, embalajeBoxPriceArs } from "./pricing";
 import type { PricingConfig, VolumeDiscountRule } from "../services/settings";
 
 /** Descuento por volumen, en % sobre el costo del producto, según packs equivalentes. */
@@ -22,6 +22,11 @@ export function buildPricingConfigPayload(
   return {
     exchange_rate: pricingConfig.exchangeRate,
     embalaje_cost: pricingConfig.embalageCost,
+    embalaje_box_price_ars: embalajeBoxPriceArs(
+      pricingConfig.embalageCost,
+      pricingConfig.markups.embalaje,
+      pricingConfig.paymentCommissionPercentage
+    ),
     packaging_cost: pricingConfig.packagingCost ?? 0,
     taxes,
     // `factor` es el formato viejo (costo ÷ factor). Se sigue enviando solo para que
@@ -32,6 +37,7 @@ export function buildPricingConfigPayload(
       factor: Number((100 / (100 - d.discount_percentage)).toFixed(4))
     })),
     markup: pricingConfig.markups.minorista,
+    markup_embalaje: pricingConfig.markups.embalaje,
     payment_commission_percentage: pricingConfig.paymentCommissionPercentage
   };
 }
@@ -83,11 +89,11 @@ export function cleanProduct(
   product: RawProduct,
   exchangeRate: number = 1,
   markupMinorista: number,
-  embalageCost: number = EMBALAJE_COST,
   quantity: number = 1,
   dbTaxes: TaxRule[] = [],
   dbDiscounts: VolumeDiscountRule[] = [],
-  packagingCost: number = 0
+  packagingCost: number = 0,
+  paymentFeePercentage: number = 0
 ): CleanProduct {
   if (!product) throw new Error("cleanProduct: product is undefined");
   if (!Number.isFinite(markupMinorista)) throw new Error("cleanProduct: markupMinorista is invalid");
@@ -121,8 +127,8 @@ export function cleanProduct(
         exchange_rate: exchangeRate,
         rentability_percentage: markup_val,
         taxes: taxes,
-        embalaje_cost: embalageCost,
-        packaging_cost: v.has_packaging ? packagingCost : 0
+        packaging_cost: v.has_packaging ? packagingCost : 0,
+        payment_gross_up_percentage: paymentFeePercentage
       });
 
       // Presentaciones que se pueden armar con el stock en unidades del producto.

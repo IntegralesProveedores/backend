@@ -1,9 +1,9 @@
 import { getSupabase } from "./db";
 import { getPricingConfig, getCachedTaxes, getCachedVolumeDiscounts } from "./settings";
-import { calculatePriceV2, TaxRule, round as round2 } from "../lib/pricing";
+import { calculatePriceV2, TaxRule, round as round2, embalajeBoxPriceArs } from "../lib/pricing";
 import { resolveVolumeDiscountPercentage } from "../lib/products";
 import { ShippingInput } from "../lib/payment-input.validation";
-import { ShippingBox, resolveShippingRate } from "./shipping.service";
+import { PackagingBox, ShippingBox, resolvePackagingPlan, resolveShippingRate } from "./shipping.service";
 
 // ─────────────────────────────────────────────────────────────
 // QUÉ HACE: Cotiza una orden (precio por ítem con descuento por volumen +
@@ -92,6 +92,12 @@ export interface OrderQuote {
   subtotalUsd: number;
   shippingArs: number;
   shippingBoxes: ShippingBox[];
+  /** Cajas del pedido (una o más por modelo de maceta), con o sin envío. */
+  packagingBoxes: PackagingBox[];
+  /** Precio de lista de una caja de embalaje. */
+  embalajeBoxPriceArs: number;
+  /** Embalaje total = cajas × precio por caja. */
+  embalajeArs: number;
   exchangeRate: number;
   paymentCommissionPercentage: number;
   /** Subtotal a precios de lista (sin descuento por volumen). Con `subtotalArs` da el
@@ -121,6 +127,18 @@ export async function buildOrderQuote(
   let subtotalUsd = 0;
   let subtotalNoDiscountArs = 0;
   const requestedUnitsByProduct = new Map<string, number>();
+  // Primera pasada: se resuelve y valida cada ítem. El descuento por volumen se define
+  // recién después, mirando el carrito entero.
+  const resolvedItems: Array<{
+    item: OrderQuoteItemInput;
+    variant: any;
+    product: any;
+    productName: string;
+    costUsdMaster: number;
+    unitsPerPackMaster: number;
+    presentationQuantity: number;
+    stockUnits: number;
+  }> = [];
 
   for (const item of items) {
     const { data: variant, error } = await supabase
@@ -172,8 +190,16 @@ export async function buildOrderQuote(
     }
     requestedUnitsByProduct.set(product.id, requestedUnits);
     const stockUnits = Math.floor(productStockUnits / presentationQuantity);
-    const equivalentPacks = (presentationQuantity * item.quantity) / unitsPerPackMaster;
-    const discountPercentage = resolveVolumeDiscountPercentage(equivalentPacks, volumeDiscounts);
+    resolvedItems.push({ item, variant, product, productName, costUsdMaster, unitsPerPackMaster, presentationQuantity, stockUnits });
+  }
+
+  // Si algún producto alcanza un tramo de descuento, ese descuento se aplica a TODOS los
+  // productos del carrito (así agregar otros productos nunca lo reduce).
+  const discountPercentage = Math.max(0, ...resolvedItems.map(r =>
+    resolveVolumeDiscountPercentage((r.presentationQuantity * r.item.quantity) / r.unitsPerPackMaster, volumeDiscounts)
+  ));
+
+  for (const { item, variant, product, productName, costUsdMaster, unitsPerPackMaster, presentationQuantity, stockUnits } of resolvedItems) {
     const costUsdMasterWithDiscount = round2(costUsdMaster * (1 - discountPercentage / 100));
 
     const pricing = calculatePriceV2({
@@ -184,8 +210,8 @@ export async function buildOrderQuote(
       exchange_rate: pricingConfig.exchangeRate,
       rentability_percentage: pricingConfig.markups.minorista,
       taxes,
-      embalaje_cost: pricingConfig.embalageCost,
-      packaging_cost: variant.has_packaging ? (pricingConfig.packagingCost ?? 0) : 0
+      packaging_cost: variant.has_packaging ? (pricingConfig.packagingCost ?? 0) : 0,
+      payment_gross_up_percentage: pricingConfig.paymentCommissionPercentage
     });
 
     const priceArs = Math.round(pricing.precio_final_ars);
@@ -207,8 +233,8 @@ export async function buildOrderQuote(
       exchange_rate: pricingConfig.exchangeRate,
       rentability_percentage: pricingConfig.markups.minorista,
       taxes,
-      embalaje_cost: pricingConfig.embalageCost,
-      packaging_cost: variant.has_packaging ? (pricingConfig.packagingCost ?? 0) : 0
+      packaging_cost: variant.has_packaging ? (pricingConfig.packagingCost ?? 0) : 0,
+      payment_gross_up_percentage: pricingConfig.paymentCommissionPercentage
     });
     const priceArsNoDiscount = Math.round(pricingNoDiscount.precio_final_ars);
     subtotalNoDiscountArs += priceArsNoDiscount * item.quantity;
@@ -246,6 +272,16 @@ export async function buildOrderQuote(
     return groups;
   }, new Map<string, number>()), ([product_id, units]) => ({ product_id, units }));
 
+  // Embalaje: se cobra por caja (una o más por modelo de maceta), no por pack. Aplica con cualquier
+  // método de entrega.
+  const packagingBoxes = await resolvePackagingPlan(env, productGroups);
+  const boxPriceArs = embalajeBoxPriceArs(
+    pricingConfig.embalageCost,
+    pricingConfig.markups.embalaje,
+    pricingConfig.paymentCommissionPercentage
+  );
+  const embalajeArs = packagingBoxes.reduce((sum, box) => sum + box.count, 0) * boxPriceArs;
+
   let shippingArs = 0;
   let shippingBoxes: ShippingBox[] = [];
   if (shipping.method === "delivery" && shipping.address?.postal_code) {
@@ -265,6 +301,9 @@ export async function buildOrderQuote(
     subtotalUsd: round2(subtotalUsd),
     shippingArs,
     shippingBoxes,
+    packagingBoxes,
+    embalajeBoxPriceArs: boxPriceArs,
+    embalajeArs,
     exchangeRate: pricingConfig.exchangeRate,
     paymentCommissionPercentage: pricingConfig.paymentCommissionPercentage,
     subtotalNoDiscountArs

@@ -108,7 +108,8 @@ export interface PricingConfig {
   exchangeRate: number;
   embalageCost: number;
   packagingCost: number;
-  markups: { minorista: number; mayorista: number };
+  /** Márgenes independientes: productos (minorista/mayorista) y embalaje. */
+  markups: { minorista: number; mayorista: number; embalaje: number };
   shippingPriceBufferPercentage: number;
   paymentCommissionPercentage: number;
 }
@@ -160,6 +161,8 @@ export async function getPricingConfig(env: any): Promise<PricingConfig> {
     packagingCost: Number.isFinite(settings["packaging_cost"]) && settings["packaging_cost"] >= 0 ? settings["packaging_cost"] : 0,
     markups: {
       minorista: requireSetting(settings, "markup_minorista"),
+      // Margen del embalaje, independiente del de los productos (pricing_settings.markup_embalaje).
+      embalaje: requireSetting(settings, "markup_embalaje"),
       mayorista: Number.isFinite(settings["markup_mayorista"]) && settings["markup_mayorista"] >= 0 ? settings["markup_mayorista"] : 0
     },
     shippingPriceBufferPercentage: requireSetting(settings, "shipping_price_buffer_percentage"),
@@ -168,6 +171,10 @@ export async function getPricingConfig(env: any): Promise<PricingConfig> {
 }
 
 /** Buffer de envío, sin exigir el resto de la config de precios. */
+export async function getPaymentCommissionPercentage(env: any): Promise<number> {
+  return requireSetting(await getPricingSettingsMap(env), "payment_commission_percentage");
+}
+
 export async function getShippingPriceBufferPercentage(env: any): Promise<number> {
   return requireSetting(await getPricingSettingsMap(env), "shipping_price_buffer_percentage");
 }

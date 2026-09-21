@@ -1,7 +1,7 @@
 import { getSupabase } from "../db";
 import { PaymentCustomerInput } from "../../lib/payment-input.validation";
 import { MercadoPagoPaymentResponse } from "../../lib/mercadopago.types";
-import { ShippingBox, resolveShippingRate } from "../shipping.service";
+import { PackagingBox, resolvePackagingPlan, resolveShippingRate } from "../shipping.service";
 import { ShippingInput } from "../../lib/payment-input.validation";
 import { getCachedTaxes } from "../settings";
 
@@ -34,12 +34,14 @@ export interface TransferOrderEmailInput {
   items: TransferOrderEmailItem[];
   shipping: ShippingInput;
   shippingAmountArs: number;
-  shippingBoxes: ShippingBox[];
+  /** Cajas del pedido (embalaje), con o sin envío. */
+  packagingBoxes: PackagingBox[];
+  embalajeAmountArs: number;
   totalArs: number;
   volumeDiscountPercentage: number;
   vatLabel: string;
-  /** % de comisión de Mercado Pago que el cliente se ahorra al pagar por transferencia (como en el resumen del checkout). */
-  transferSavingsPercentage: number;
+  /** Descuento por pagar con transferencia (los precios de lista ya incluyen el costo de Mercado Pago). */
+  transferDiscount: { percentage: number; amountArs: number };
 }
 
 interface OrderConfirmationOrderRow {
@@ -47,6 +49,7 @@ interface OrderConfirmationOrderRow {
   total_amount: number | string;
   subtotal_amount: number | string;
   shipping_amount: number | string;
+  embalaje_amount: number | string | null;
   payment_commission_percentage: number | string | null;
   payment_commission_amount: number | string | null;
 }
@@ -311,7 +314,9 @@ interface SummaryModel {
   /** "Sin impuestos Nacionales"; null si no está disponible. */
   subtotalNoTaxArs: number | null;
   vatLabel: string;
-  shippingBoxes: ShippingBox[];
+  packagingBoxes: PackagingBox[];
+  /** Costo del embalaje (0 en órdenes viejas, donde iba dentro del precio de cada pack). */
+  embalajeAmountArs: number;
   entrega: {
     method: "pickup" | "delivery" | "coordinar" | null;
     address: EntregaAddressInput | null;
@@ -324,6 +329,7 @@ interface SummaryModel {
     methodLabel: string;
     /** Descuento por pagar con transferencia (fila "Pago Transferencia  −10%"). */
     transferDiscountPercentage: number;
+    transferDiscountAmountArs: number;
     detailsHtml: string;
     detailsText: string[];
   };
@@ -374,18 +380,18 @@ function buildItemsCard(env: Env, model: SummaryModel): { html: string; text: st
 }
 
 /** Bloque "Embalaje": cantidad x modelo de caja y sus medidas. */
-function buildPackagingCard(shippingBoxes: ShippingBox[]): { html: string; text: string[] } {
-  if (!shippingBoxes.length) return { html: "", text: [] };
-  const rows = shippingBoxes.map(b => rowHtml(
+function buildPackagingCard(boxes: PackagingBox[], amountArs: number): { html: string; text: string[] } {
+  if (!boxes.length) return { html: "", text: [] };
+  const rows = boxes.map(b => rowHtml(
     `<span style="font-family:${FONT_BODY};font-size:13px;font-weight:bold;color:${EMAIL_COLORS.title};">${b.count} x ${escapeHtmlForEmail(b.boxModelName)}</span>`,
     `<span style="font-family:${FONT_BODY};font-size:12px;color:${EMAIL_COLORS.value};">${b.widthCm} &times; ${b.lengthCm} &times; ${b.heightCm} cm.</span>`,
     { padding: "2px 0" }
   )).join("");
   return {
-    html: cardHtml(`${labelHtml("Embalaje")}
+    html: cardHtml(`${rowHtml(labelHtml("Embalaje"), amountArs > 0 ? amountHtml(formatArs(amountArs)) : "", { padding: "2px 0" })}
       <div style="height:4px;line-height:4px;font-size:1px;">&nbsp;</div>
       ${rows}`),
-    text: ["EMBALAJE", ...shippingBoxes.map(b => `- ${b.count} x ${b.boxModelName} (${b.widthCm} x ${b.lengthCm} x ${b.heightCm} cm)`)]
+    text: [`EMBALAJE${amountArs > 0 ? `: ${formatArs(amountArs)}` : ""}`, ...boxes.map(b => `- ${b.count} x ${b.boxModelName} (${b.widthCm} x ${b.lengthCm} x ${b.heightCm} cm)`)]
   };
 }
 
@@ -466,7 +472,7 @@ function buildPagoCard(pago: SummaryModel["pago"]): { html: string; text: string
   const hasTransferDiscount = pago.transferDiscountPercentage > 0;
   const html = cardHtml(`${rowHtml(
     `${labelHtml("Pago")}<br>${smallHtml(escapeHtmlForEmail(pago.methodLabel))}`,
-    hasTransferDiscount ? amountHtml(`&minus;${pago.transferDiscountPercentage}%`) : "",
+    hasTransferDiscount ? `${amountHtml(`&minus;${formatArs(pago.transferDiscountAmountArs)}`)}<br>${smallHtml(`&minus;${pago.transferDiscountPercentage}%`)}` : "",
     { padding: "2px 0" }
   )}
     <div style="height:8px;line-height:8px;font-size:1px;">&nbsp;</div>
@@ -474,7 +480,7 @@ function buildPagoCard(pago: SummaryModel["pago"]): { html: string; text: string
   return {
     html,
     text: [
-      `PAGO: ${pago.methodLabel}${hasTransferDiscount ? ` (-${pago.transferDiscountPercentage}%)` : ""}`,
+      `PAGO: ${pago.methodLabel}${hasTransferDiscount ? ` (-${pago.transferDiscountPercentage}%: -${formatArs(pago.transferDiscountAmountArs)})` : ""}`,
       ...pago.detailsText
     ]
   };
@@ -505,7 +511,7 @@ function buildTotalCard(totalArs: number, vatLabel: string): { html: string; tex
 function buildSummaryBlocks(env: Env, model: SummaryModel): { html: string; text: string } {
   const blocks = [
     buildItemsCard(env, model),
-    buildPackagingCard(model.shippingBoxes),
+    buildPackagingCard(model.packagingBoxes, model.embalajeAmountArs),
     buildEntregaCard(model.entrega),
     buildPagoCard(model.pago),
     buildCommissionCard(model.commission),
@@ -645,7 +651,8 @@ export async function sendTransferOrderConfirmationEmail(env: Env, input: Transf
       productsTotalArs,
       subtotalNoTaxArs,
       vatLabel: input.vatLabel,
-      shippingBoxes: input.shippingBoxes,
+      packagingBoxes: input.packagingBoxes,
+      embalajeAmountArs: input.embalajeAmountArs,
       entrega: {
         method: input.shipping.method,
         address: input.shipping.address ?? null,
@@ -655,7 +662,8 @@ export async function sendTransferOrderConfirmationEmail(env: Env, input: Transf
       },
       pago: {
         methodLabel: "Transferencia bancaria",
-        transferDiscountPercentage: input.transferSavingsPercentage,
+        transferDiscountPercentage: input.transferDiscount.percentage,
+        transferDiscountAmountArs: input.transferDiscount.amountArs,
         detailsHtml: `${cuentaHtml}
           <p style="margin:12px 0 0;padding:10px 12px;background-color:#e9f7ef;border-radius:8px;text-align:center;font-family:${FONT_BODY};font-size:12px;color:#1e7e34;font-weight:bold;">${avisoPago}</p>`,
         detailsText: [
@@ -711,7 +719,7 @@ export async function sendMercadoPagoOrderConfirmationEmail(
     const [orderResult, itemsResult, customerResult, addressResult, taxes] = await Promise.all([
       supabase
         .from("orders")
-        .select("id, total_amount, subtotal_amount, shipping_amount, payment_commission_percentage, payment_commission_amount")
+        .select("id, total_amount, subtotal_amount, shipping_amount, embalaje_amount, payment_commission_percentage, payment_commission_amount")
         .eq("id", orderId)
         .single(),
       supabase
@@ -800,25 +808,28 @@ export async function sendMercadoPagoOrderConfirmationEmail(
       }
     }
 
-    // ---- Embalaje (recalculado a partir de order_items + código postal; no se
-    // persiste en la orden, así que se reconstruye igual que en el mail de
-    // transferencia en vez de agregar una columna nueva solo para esto) ----
-    let shippingBoxes: ShippingBox[] = [];
-    if (address?.shipping_method === "delivery" && address.postal_code) {
-      const productGroups = Array.from(items.reduce((acc, item) => {
-        const variant = getVariant(item.product_variants);
-        const product = getProduct(variant?.products ?? null);
-        if (!product?.id) return acc;
-        const unitsPerPack = Number(variant?.units_per_pack ?? 1);
-        acc.set(product.id, (acc.get(product.id) ?? 0) + Number(item.quantity) * unitsPerPack);
-        return acc;
-      }, new Map<string, number>()), ([product_id, units]) => ({ product_id, units }));
-      try {
+    // ---- Embalaje: las cajas no se guardan en la orden, se reconstruyen a partir de order_items
+    // (con el importe guardado en orders.embalaje_amount). En órdenes viejas el embalaje iba
+    // dentro del precio de cada pack: ahí solo se muestran las cajas del envío a domicilio. ----
+    const embalajeAmountArs = Number(order.embalaje_amount ?? 0);
+    let packagingBoxes: PackagingBox[] = [];
+    const productGroups = Array.from(items.reduce((acc, item) => {
+      const variant = getVariant(item.product_variants);
+      const product = getProduct(variant?.products ?? null);
+      if (!product?.id) return acc;
+      const unitsPerPack = Number(variant?.units_per_pack ?? 1);
+      acc.set(product.id, (acc.get(product.id) ?? 0) + Number(item.quantity) * unitsPerPack);
+      return acc;
+    }, new Map<string, number>()), ([product_id, units]) => ({ product_id, units }));
+    try {
+      if (embalajeAmountArs > 0) {
+        packagingBoxes = await resolvePackagingPlan(env, productGroups);
+      } else if (address?.shipping_method === "delivery" && address.postal_code) {
         const resolution = await resolveShippingRate(env, address.postal_code, productGroups, address.province);
-        shippingBoxes = resolution?.boxes ?? [];
-      } catch (error) {
-        console.error("Unable to recompute shipping boxes for confirmation email:", error);
+        packagingBoxes = resolution?.boxes ?? [];
       }
+    } catch (error) {
+      console.error("Unable to recompute packaging boxes for confirmation email:", error);
     }
 
     const commissionAmount = Number(order.payment_commission_amount ?? 0);
@@ -831,7 +842,8 @@ export async function sendMercadoPagoOrderConfirmationEmail(
       productsTotalArs: Number(order.subtotal_amount),
       subtotalNoTaxArs: null,
       vatLabel,
-      shippingBoxes,
+      packagingBoxes,
+      embalajeAmountArs,
       entrega: {
         method: address?.shipping_method ?? null,
         address,
@@ -842,6 +854,7 @@ export async function sendMercadoPagoOrderConfirmationEmail(
       pago: {
         methodLabel: "Mercado Pago",
         transferDiscountPercentage: 0,
+        transferDiscountAmountArs: 0,
         detailsHtml: emailFieldsTableHtml([
           emailFieldRowHtml("ID de pago", escapeHtmlForEmail(payment.id)),
           emailFieldRowHtml("Estado", escapeHtmlForEmail(payment.status)),

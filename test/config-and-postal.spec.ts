@@ -13,6 +13,7 @@ const VALID_SETTINGS = [
   { key: "embalaje_cost", value: 760 },
   { key: "packaging_cost", value: 2000 },
   { key: "markup_minorista", value: 60 },
+  { key: "markup_embalaje", value: 60 },
   { key: "markup_mayorista", value: 20 },
   { key: "shipping_price_buffer_percentage", value: 15 },
   { key: "payment_commission_percentage", value: 10 }
@@ -37,7 +38,7 @@ describe("getPricingConfig (sin valores de respaldo)", () => {
       exchangeRate: 1535,
       embalageCost: 760,
       packagingCost: 2000,
-      markups: { minorista: 60, mayorista: 20 },
+      markups: { minorista: 60, mayorista: 20, embalaje: 60 },
       shippingPriceBufferPercentage: 15,
       paymentCommissionPercentage: 10
     });
@@ -70,6 +71,16 @@ describe("getPricingConfig (sin valores de respaldo)", () => {
     const config = await getPricingConfig({});
     expect(config.packagingCost).toBe(0);
     expect(config.markups.mayorista).toBe(0);
+  });
+
+  it("el margen del embalaje es independiente del de productos y es obligatorio", async () => {
+    mockPricingSettings({ data: VALID_SETTINGS.map(s => s.key === "markup_embalaje" ? { ...s, value: 35 } : s), error: null });
+    const config = await getPricingConfig({});
+    expect(config.markups.minorista).toBe(60);
+    expect(config.markups.embalaje).toBe(35);
+
+    mockPricingSettings({ data: VALID_SETTINGS.filter(s => s.key !== "markup_embalaje"), error: null });
+    await expect(getPricingConfig({})).rejects.toThrow("markup_embalaje");
   });
 
   it("el buffer de envío no exige el resto de la config", async () => {

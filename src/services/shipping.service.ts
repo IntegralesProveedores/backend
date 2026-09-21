@@ -1,5 +1,6 @@
 import { getSupabase } from "./db";
-import { getShippingPriceBufferPercentage } from "./settings";
+import { getPaymentCommissionPercentage, getShippingPriceBufferPercentage } from "./settings";
+import { paymentGrossUpFactor } from "../lib/pricing";
 
 // ─────────────────────────────────────────────────────────────
 // QUÉ HACE: Resolución de zona/tarifa/plan de cajas de envío.
@@ -30,6 +31,102 @@ interface ShippingResolution {
   boxCount: number;
 }
 
+/** Caja del embalaje/envío de un pedido: cuántas de cada modelo hacen falta. */
+export interface PackagingBox {
+  boxModelId: string;
+  boxModelName: string;
+  widthCm: number;
+  lengthCm: number;
+  heightCm: number;
+  weightKg: number;
+  count: number;
+}
+
+interface BoxCandidate {
+  boxModelId: string;
+  minQuantity: number;
+  maxQuantity: number;
+}
+
+/**
+ * Cuántas cajas de cada modelo hacen falta para `units` unidades de un mismo modelo de maceta:
+ * si las unidades entran en el rango de una caja se usa esa; si exceden la caja más grande, se
+ * llenan cajas grandes hasta que el resto entre en un rango.
+ */
+function pickBoxCounts(boxes: BoxCandidate[], units: number): Map<string, number> {
+  const largestBox = boxes.reduce((largest, box) => box.maxQuantity > largest.maxQuantity ? box : largest);
+  const counts = new Map<string, number>();
+  let remainingUnits = units;
+  while (remainingUnits > 0) {
+    const matchingBox = boxes.find(box => remainingUnits >= box.minQuantity && remainingUnits <= box.maxQuantity);
+    const box = matchingBox ?? (remainingUnits > largestBox.maxQuantity ? largestBox : null);
+    if (!box) throw new Error(`Unable to build a shipping box plan for ${units} units`);
+    counts.set(box.boxModelId, (counts.get(box.boxModelId) ?? 0) + 1);
+    remainingUnits = matchingBox ? 0 : remainingUnits - largestBox.maxQuantity;
+  }
+  return counts;
+}
+
+/**
+ * Cajas del pedido, independientes del envío (no depende del código postal ni de tarifas): una
+ * o más cajas por modelo de maceta según sus unidades totales. Sirve para cobrar el embalaje
+ * también con Retiro y Coordinar. Usa 2 consultas sin importar cuántos productos haya.
+ */
+export async function resolvePackagingPlan(env: Env, productGroups: ProductGroup[]): Promise<PackagingBox[]> {
+  const groups = productGroups.filter(group => group.units > 0);
+  if (groups.length === 0) return [];
+
+  const supabase = getSupabase(env);
+  const { data: assignments, error: assignmentsError } = await supabase
+    .from("pricing_shipping_box_assignments")
+    .select("product_id, box_model_id, min_quantity, max_quantity")
+    .in("product_id", groups.map(group => group.product_id))
+    .eq("active", true);
+  if (assignmentsError) throw new Error(`Unable to load box rules: ${assignmentsError.message}`);
+
+  const modelIds = [...new Set((assignments ?? []).map((a: any) => String(a.box_model_id)))];
+  const modelsResult = modelIds.length
+    ? await supabase.from("pricing_shipping_box_models")
+        .select("id, name, width_cm, length_cm, height_cm, weight_kg")
+        .eq("active", true).in("id", modelIds)
+    : { data: [], error: null };
+  if (modelsResult.error) throw new Error(`Unable to load box models: ${modelsResult.error.message}`);
+  const models = new Map((modelsResult.data ?? []).map((m: any) => [String(m.id), m]));
+
+  const result: PackagingBox[] = [];
+  for (const group of groups) {
+    const boxes = (assignments ?? [])
+      .filter((a: any) => String(a.product_id) === group.product_id)
+      .flatMap((a: any) => {
+        const model = models.get(String(a.box_model_id));
+        const minQuantity = Number(a.min_quantity);
+        const maxQuantity = Number(a.max_quantity);
+        return model && Number.isFinite(minQuantity) && Number.isFinite(maxQuantity) && maxQuantity > 0
+          ? [{ boxModelId: String(a.box_model_id), minQuantity, maxQuantity, model }]
+          : [];
+      });
+    if (!boxes.length) throw new Error(`No shipping box rules found for product ${group.product_id}`);
+
+    const counts = pickBoxCounts(boxes, group.units);
+    for (const box of boxes) {
+      const count = counts.get(box.boxModelId);
+      if (!count) continue;
+      const existing = result.find(b => b.boxModelId === box.boxModelId);
+      if (existing) existing.count += count;
+      else result.push({
+        boxModelId: box.boxModelId,
+        boxModelName: String(box.model.name),
+        widthCm: Number(box.model.width_cm),
+        lengthCm: Number(box.model.length_cm),
+        heightCm: Number(box.model.height_cm),
+        weightKg: Number(box.model.weight_kg),
+        count
+      });
+    }
+  }
+  return result;
+}
+
 export async function resolveShippingBoxPlan(
   env: Env,
   zoneName: string,
@@ -40,7 +137,8 @@ export async function resolveShippingBoxPlan(
 
   const supabase = getSupabase(env);
   const shippingPriceBufferPercentage = await getShippingPriceBufferPercentage(env);
-  const bufferFactor = 1 + shippingPriceBufferPercentage / 100;
+  // El envío también lleva el costo del medio de pago (ver paymentGrossUpFactor).
+  const bufferFactor = (1 + shippingPriceBufferPercentage / 100) * paymentGrossUpFactor(await getPaymentCommissionPercentage(env));
   const result = { boxes: [] as ShippingBox[], totalPriceArs: 0 };
   for (const group of productGroups) {
     if (group.units <= 0) continue;
@@ -77,22 +175,15 @@ export async function resolveShippingBoxPlan(
         : [];
     });
     if (!boxes.length) throw new Error(`No active shipping rates found for zone "${zoneName}" and delivery speed "${deliverySpeed}"`);
-    const largestBox = boxes.reduce((largest, box) => box.maxQuantity > largest.maxQuantity ? box : largest);
-    const counts = new Map<string, number>();
-    let remainingUnits = group.units;
+    const counts = pickBoxCounts(boxes, group.units);
     let totalPrice = 0;
-    while (remainingUnits > 0) {
-      const matchingBox = boxes.find(box => remainingUnits >= box.minQuantity && remainingUnits <= box.maxQuantity);
-      const box = matchingBox ?? (remainingUnits > largestBox.maxQuantity ? largestBox : null);
-      if (!box) throw new Error(`Unable to build a shipping box plan for ${group.units} units`);
-      counts.set(box.boxModelId, (counts.get(box.boxModelId) ?? 0) + 1);
-      totalPrice += box.priceArs;
-      remainingUnits = matchingBox ? 0 : remainingUnits - largestBox.maxQuantity;
-    }
-    for (const box of boxes) if (counts.has(box.boxModelId)) {
+    for (const box of boxes) {
+      const count = counts.get(box.boxModelId);
+      if (!count) continue;
+      totalPrice += count * box.priceArs;
       const existing = result.boxes.find(b => b.boxModelId === box.boxModelId);
-      if (existing) existing.count += counts.get(box.boxModelId)!;
-      else result.boxes.push({ boxModelId: box.boxModelId, boxModelName: box.name, widthCm: box.widthCm, lengthCm: box.lengthCm, heightCm: box.heightCm, weightKg: box.weightKg, count: counts.get(box.boxModelId)!, unitPriceArs: box.priceArs });
+      if (existing) existing.count += count;
+      else result.boxes.push({ boxModelId: box.boxModelId, boxModelName: box.name, widthCm: box.widthCm, lengthCm: box.lengthCm, heightCm: box.heightCm, weightKg: box.weightKg, count, unitPriceArs: box.priceArs });
     }
     result.totalPriceArs += Math.round(totalPrice);
   }

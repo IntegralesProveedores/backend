@@ -87,6 +87,28 @@ async function cancelAndRestore(env: Env, orderId: string): Promise<boolean> {
   return true;
 }
 
+/**
+ * El cliente volvió de Mercado Pago sin pagar (pantalla de error): cancela esa orden
+ * y devuelve el stock, en vez de esperar las 25 h del cron. Devuelve false si no había
+ * nada que cancelar o si Mercado Pago ya tiene un pago aprobado (el webhook puede demorar).
+ */
+export async function abandonMercadoPagoOrder(env: Env, externalReference: string): Promise<boolean> {
+  const { data, error } = await getSupabase(env)
+    .from("orders")
+    .select("id")
+    .eq("external_reference", externalReference)
+    .eq("payment_method", "mercadopago")
+    .eq("status", "pending")
+    .eq("payment_status", "pending")
+    .not("stock_decremented_at", "is", null)
+    .maybeSingle();
+  if (error) throw new Error(`Unable to load order for abandon: ${error.message}`);
+  if (!data) return false;
+
+  if (await new MercadoPagoService(env.MP_ACCESS_TOKEN).hasApprovedPayment(externalReference)) return false;
+  return cancelAndRestore(env, String((data as { id: string }).id));
+}
+
 export async function releaseAbandonedOrders(env: Env): Promise<StockReleaseResult> {
   const result: StockReleaseResult = { released: [], skipped: [] };
 

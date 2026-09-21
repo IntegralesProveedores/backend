@@ -26,9 +26,10 @@ export async function createOrderRecord(
   externalReference: string,
   shipping: ShippingInput,
   shippingAmount: number,
+  embalajeAmount: number,
   paymentMethod: string,
-  paymentCommissionPercentage: number,
-  paymentCommissionAmount: number
+  paymentDiscountPercentage: number,
+  paymentDiscountAmount: number
 ): Promise<{ id: string }> {
   const supabase = getSupabase(env);
   const { data, error } = await supabase
@@ -37,10 +38,14 @@ export async function createOrderRecord(
       customer_email: customer.email,
       subtotal_amount: totalArs,
       shipping_amount: shippingAmount,
-      total_amount: totalArs + shippingAmount + paymentCommissionAmount,
+      embalaje_amount: embalajeAmount,
+      total_amount: totalArs + shippingAmount + embalajeAmount - paymentDiscountAmount,
       payment_method: paymentMethod,
-      payment_commission_percentage: paymentCommissionPercentage,
-      payment_commission_amount: paymentCommissionAmount,
+      // El costo del medio de pago va dentro de los precios: ya no hay comisión aparte.
+      payment_commission_percentage: 0,
+      payment_commission_amount: 0,
+      payment_discount_percentage: paymentDiscountPercentage,
+      payment_discount_amount: paymentDiscountAmount,
       exchange_rate_used: exchangeRate,
       status: "pending",
       payment_status: "pending",

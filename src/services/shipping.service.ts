@@ -28,7 +28,6 @@ interface ShippingResolution {
   zone: string;
   priceArs: number;
   boxes: ShippingBox[];
-  boxCount: number;
 }
 
 /** Caja del embalaje/envío de un pedido: cuántas de cada modelo hacen falta. */
@@ -167,7 +166,6 @@ export async function resolveShippingBoxPlan(
       const id = String(assignment.box_model_id);
       const model = models.get(id);
       const minQuantity = Number(assignment.min_quantity);
-      const maxQuantity = Number(assignment.max_quantity);
       const capacity = Number(assignment.max_quantity);
       const price = rates.get(id);
       return model && Number.isFinite(minQuantity) && Number.isFinite(capacity) && capacity > 0 && price !== undefined
@@ -268,7 +266,6 @@ export async function resolveShippingRate(
   return {
     zone: String(zoneName),
     priceArs: boxPlan.totalPriceArs,
-    boxes: boxPlan.boxes,
-    boxCount: boxPlan.boxes.reduce((sum, box) => sum + box.count, 0)
+    boxes: boxPlan.boxes
   };
 }

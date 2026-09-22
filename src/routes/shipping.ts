@@ -26,9 +26,7 @@ export async function handleShippingQuote({ env, request }: RouteContext) {
     return jsonResponse({
       postal_code: postalCode,
       zone: resolution.zone,
-      price_ars: resolution.priceArs,
-      box_count: resolution.boxCount,
-      boxes: resolution.boxes
+      price_ars: resolution.priceArs
     });
   } catch (e: any) {
     return errorResponse("Unable to quote shipping", 500, { original_message: e.message, stack: e.stack });

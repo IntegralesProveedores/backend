@@ -1,4 +1,4 @@
-import { jsonResponse, errorResponse } from "./response";
+import { errorResponse } from "./response";
 
 // ─────────────────────────────────────────────────────────────
 // QUÉ HACE: Tipado y contratos para el router modular

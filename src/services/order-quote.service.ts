@@ -3,7 +3,7 @@ import { getPricingConfig, getCachedTaxes, getCachedVolumeDiscounts } from "./se
 import { calculatePriceV2, TaxRule, round as round2, embalajeBoxPriceArs } from "../lib/pricing";
 import { resolveVolumeDiscountPercentage } from "../lib/products";
 import { ShippingInput } from "../lib/payment-input.validation";
-import { PackagingBox, ShippingBox, resolvePackagingPlan, resolveShippingRate } from "./shipping.service";
+import { PackagingBox, resolvePackagingPlan, resolveShippingRate } from "./shipping.service";
 
 // ─────────────────────────────────────────────────────────────
 // QUÉ HACE: Cotiza una orden (precio por ítem con descuento por volumen +
@@ -91,7 +91,6 @@ export interface OrderQuote {
   subtotalArs: number;
   subtotalUsd: number;
   shippingArs: number;
-  shippingBoxes: ShippingBox[];
   /** Cajas del pedido (una o más por modelo de maceta), con o sin envío. */
   packagingBoxes: PackagingBox[];
   /** Precio de lista de una caja de embalaje. */
@@ -283,7 +282,6 @@ export async function buildOrderQuote(
   const embalajeArs = packagingBoxes.reduce((sum, box) => sum + box.count, 0) * boxPriceArs;
 
   let shippingArs = 0;
-  let shippingBoxes: ShippingBox[] = [];
   if (shipping.method === "delivery" && shipping.address?.postal_code) {
     const shippingResolution = await resolveShippingRate(env, shipping.address.postal_code, productGroups, shipping.address.province);
     // Sin zona no hay tarifa: antes esto se cobraba como envío gratis ($0).
@@ -291,7 +289,6 @@ export async function buildOrderQuote(
       throw new OrderQuoteError("Shipping is not available for the postal code provided");
     }
     shippingArs = shippingResolution.priceArs;
-    shippingBoxes = shippingResolution.boxes;
   }
 
   return {
@@ -300,7 +297,6 @@ export async function buildOrderQuote(
     subtotalArs,
     subtotalUsd: round2(subtotalUsd),
     shippingArs,
-    shippingBoxes,
     packagingBoxes,
     embalajeBoxPriceArs: boxPriceArs,
     embalajeArs,

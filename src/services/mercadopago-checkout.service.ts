@@ -53,8 +53,9 @@ export class PaymentService {
 
     const supabase = getSupabase(this.env);
     const quote = await buildOrderQuote(this.env, input.items, input.shipping);
+    // quote.subtotalArs ya incluye el embalaje (repartido en el precio de cada producto).
     const payment = calculateOrderPayment(
-      quote.subtotalArs + quote.embalajeArs,
+      quote.subtotalArs,
       quote.shippingArs,
       "mercadopago",
       quote.paymentCommissionPercentage
@@ -324,6 +325,8 @@ export class PaymentService {
       expiration_date_to: expiration.toISOString(),
       payer,
       items: [
+        // item.unit_price ya incluye el embalaje repartido de cada producto: no va
+        // como línea aparte (sería cobrarlo dos veces).
         ...quote.items.map(item => ({
           id: item.id,
           title: item.title,
@@ -339,14 +342,6 @@ export class PaymentService {
           quantity: 1,
           currency_id: "ARS" as const,
           unit_price: quote.shippingArs
-        }] : []),
-        ...(quote.embalajeArs > 0 ? [{
-          id: "packaging",
-          title: "Embalaje",
-          description: `${quote.packagingBoxes.reduce((sum, box) => sum + box.count, 0)} caja(s)`,
-          quantity: 1,
-          currency_id: "ARS" as const,
-          unit_price: quote.embalajeArs
         }] : [])
       ],
       metadata: {

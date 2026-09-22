@@ -24,7 +24,7 @@ export async function handlePackagingQuote({ env, request }: RouteContext) {
   if ("error" in parsed) return errorResponse(parsed.error, 400);
 
   try {
-    const [pricingConfig, boxes] = await Promise.all([
+    const [pricingConfig, plan] = await Promise.all([
       getPricingConfig(env),
       resolvePackagingPlan(env, parsed.groups)
     ]);
@@ -33,13 +33,19 @@ export async function handlePackagingQuote({ env, request }: RouteContext) {
       pricingConfig.markups.embalaje,
       pricingConfig.paymentCommissionPercentage
     );
-    const boxCount = boxes.reduce((sum, box) => sum + box.count, 0);
+    const boxCount = plan.boxes.reduce((sum, box) => sum + box.count, 0);
 
     return jsonResponse({
-      boxes,
+      boxes: plan.boxes,
       box_count: boxCount,
       embalaje_box_price_ars: boxPriceArs,
-      embalaje_ars: boxCount * boxPriceArs
+      embalaje_ars: boxCount * boxPriceArs,
+      // Reparto por producto: lo usa el carrito para sumar cada producto a su propio precio
+      // (el embalaje de un producto son sus propias cajas, nunca se comparte con otro).
+      by_product: Array.from(plan.perProductBoxCount, ([product_id, count]) => ({
+        product_id,
+        embalaje_ars: count * boxPriceArs
+      }))
     });
   } catch (e: any) {
     return errorResponse("Unable to quote packaging", 500, { original_message: e.message, stack: e.stack });

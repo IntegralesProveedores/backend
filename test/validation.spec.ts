@@ -126,7 +126,9 @@ describe('precios y envío consistentes', () => {
 
 describe('descuento por volumen: el mayor tramo alcanzado se aplica a todo el carrito', () => {
   it('un producto que llega a 3 bultos le da 5% también a los demás', async () => {
-    const products = ((await (await SELF.fetch('https://example.com/products')).json()) as any).items;
+    const catalog = (await (await SELF.fetch('https://example.com/products')).json()) as any;
+    const products = catalog.items;
+    const boxPriceArs = catalog.pricing_config.embalaje_box_price_ars;
     const olivo = products.find((p: any) => p.slug === 'olivo');
     const floral = products.find((p: any) => p.slug === 'floral');
     const olivo500 = olivo.variants.find((v: any) => v.units_per_pack === 500);   // 3 x 500 = 3 bultos => 5%
@@ -139,15 +141,16 @@ describe('descuento por volumen: el mayor tramo alcanzado se aplica a todo el ca
 
     expect(quote.items.map(i => i.discount_percentage)).toEqual([5, 5]);
 
-    // El precio del floral coincide con el de la API a una cantidad que da 5% (36 x 25 = 3 bultos).
+    // El precio del floral coincide con el de la API a una cantidad que da 5% (36 x 25 = 3 bultos),
+    // más el embalaje de su propia caja (25 unidades = 1 Caja Chica, sea cual sea el resto del carrito).
     const floralConDescuento = ((await (await SELF.fetch('https://example.com/products/floral?quantity=36')).json()) as any)
       .variants.find((v: any) => v.units_per_pack === 25);
-    expect(quote.items[1].price_ars).toBe(floralConDescuento.price_ars);
+    expect(quote.items[1].price_ars).toBe(floralConDescuento.price_ars + boxPriceArs);
 
-    // Y es más barato que sin descuento.
+    // Y es más barato que sin descuento (con el mismo embalaje sumado).
     const floralSinDescuento = ((await (await SELF.fetch('https://example.com/products/floral?quantity=1')).json()) as any)
       .variants.find((v: any) => v.units_per_pack === 25);
-    expect(quote.items[1].price_ars).toBeLessThan(floralSinDescuento.price_ars);
+    expect(quote.items[1].price_ars).toBeLessThan(floralSinDescuento.price_ars + boxPriceArs);
   });
 
   it('con un solo producto sin tramo alcanzado no hay descuento', async () => {
@@ -158,22 +161,47 @@ describe('descuento por volumen: el mayor tramo alcanzado se aplica a todo el ca
   });
 });
 
-describe('embalaje por caja en el pedido', () => {
+describe('embalaje por caja, repartido en el precio de cada producto', () => {
   it('3 packs de Almaciguera (1800 u.) + 1 pack de Olivo x25 = 3 cajas grandes + 1 chica, 4 x $1.351', async () => {
-    const products = ((await (await SELF.fetch('https://example.com/products')).json()) as any).items;
-    const almaciguera = products.find((p: any) => p.slug === 'almaciguera').variants.find((v: any) => v.units_per_pack === 600);
-    const olivo = products.find((p: any) => p.slug === 'olivo').variants.find((v: any) => v.units_per_pack === 25);
+    const catalog = (await (await SELF.fetch('https://example.com/products')).json()) as any;
+    const products = catalog.items;
+    const boxPriceArs = catalog.pricing_config.embalaje_box_price_ars;
+    const almacigueraProduct = products.find((p: any) => p.slug === 'almaciguera');
+    const olivoProduct = products.find((p: any) => p.slug === 'olivo');
+    const almaciguera = almacigueraProduct.variants.find((v: any) => v.units_per_pack === 600);
+    const olivo = olivoProduct.variants.find((v: any) => v.units_per_pack === 25);
 
     const quote = await buildOrderQuote(env as any, [
       { variant_id: almaciguera.id, quantity: 3 },
       { variant_id: olivo.id, quantity: 1 }
     ], { method: 'pickup' });
 
+    // Las cajas: con Retiro también se calcula y se cobra el embalaje.
     const cajas = Object.fromEntries(quote.packagingBoxes.map(b => [b.boxModelName, b.count]));
     expect(cajas).toEqual({ 'Caja Grande': 3, 'Caja Chica': 1 });
-    expect(quote.embalajeBoxPriceArs).toBe(1351);
-    expect(quote.embalajeArs).toBe(4 * 1351);   // con Retiro también se cobra el embalaje
     expect(quote.shippingArs).toBe(0);
+
+    // El embalaje NO es una línea aparte: cada producto absorbe el costo de sus propias
+    // cajas (nunca compartidas con otro producto), repartido entre sus unidades. Acá cada
+    // pack necesita exactamente 1 caja (600u -> 1 Grande, 25u -> 1 Chica), así que el
+    // embalaje por pack es el precio de 1 caja en las dos líneas.
+
+    // Almaciguera: su propio tramo de descuento (3 bultos de 600) ya da 5%, coincide con
+    // el del carrito.
+    const almacigueraConDescuento = ((await (await SELF.fetch('https://example.com/products/almaciguera?quantity=3')).json()) as any)
+      .variants.find((v: any) => v.units_per_pack === 600);
+    expect(quote.items[0].price_ars).toBe(almacigueraConDescuento.price_ars + boxPriceArs);
+
+    // Olivo solo no llega a ningún tramo, pero el carrito le da 5% igual (por la Almaciguera).
+    // El % de descuento define el precio igual sea cual sea el motivo: se compara contra una
+    // cantidad que le daría 5% por sí solo (60 packs de 25 = 3 bultos de 500).
+    const olivoConDescuento = ((await (await SELF.fetch('https://example.com/products/olivo?quantity=60')).json()) as any)
+      .variants.find((v: any) => v.units_per_pack === 25);
+    expect(quote.items[1].price_ars).toBe(olivoConDescuento.price_ars + boxPriceArs);
+
+    // El total charged (informativo) coincide con lo que ya está adentro de cada precio.
+    expect(quote.embalajeArs).toBe(4 * boxPriceArs);
+    expect(quote.items[0].subtotal_ars + quote.items[1].subtotal_ars).toBe(quote.subtotalArs);
   });
 
   it('POST /packaging/quote devuelve las cajas y el importe', async () => {

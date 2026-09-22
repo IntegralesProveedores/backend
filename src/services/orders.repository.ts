@@ -38,8 +38,10 @@ export async function createOrderRecord(
       customer_email: customer.email,
       subtotal_amount: totalArs,
       shipping_amount: shippingAmount,
+      // Solo para el registro: el embalaje ya está repartido dentro de totalArs
+      // (precio de cada producto), no se vuelve a sumar acá.
       embalaje_amount: embalajeAmount,
-      total_amount: totalArs + shippingAmount + embalajeAmount - paymentDiscountAmount,
+      total_amount: totalArs + shippingAmount - paymentDiscountAmount,
       payment_method: paymentMethod,
       // El costo del medio de pago va dentro de los precios: ya no hay comisión aparte.
       payment_commission_percentage: 0,

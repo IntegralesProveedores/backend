@@ -66,14 +66,22 @@ function pickBoxCounts(boxes: BoxCandidate[], units: number): Map<string, number
   return counts;
 }
 
+/** Plan de embalaje de un pedido: las cajas (para mostrar) y cuántas le corresponden a cada
+ *  producto (para repartir el costo del embalaje en el precio de cada producto). */
+export interface PackagingPlan {
+  boxes: PackagingBox[];
+  /** product_id -> cantidad de cajas que le corresponden a ese producto. */
+  perProductBoxCount: Map<string, number>;
+}
+
 /**
  * Cajas del pedido, independientes del envío (no depende del código postal ni de tarifas): una
  * o más cajas por modelo de maceta según sus unidades totales. Sirve para cobrar el embalaje
  * también con Retiro y Coordinar. Usa 2 consultas sin importar cuántos productos haya.
  */
-export async function resolvePackagingPlan(env: Env, productGroups: ProductGroup[]): Promise<PackagingBox[]> {
+export async function resolvePackagingPlan(env: Env, productGroups: ProductGroup[]): Promise<PackagingPlan> {
   const groups = productGroups.filter(group => group.units > 0);
-  if (groups.length === 0) return [];
+  if (groups.length === 0) return { boxes: [], perProductBoxCount: new Map() };
 
   const supabase = getSupabase(env);
   const { data: assignments, error: assignmentsError } = await supabase
@@ -93,6 +101,7 @@ export async function resolvePackagingPlan(env: Env, productGroups: ProductGroup
   const models = new Map((modelsResult.data ?? []).map((m: any) => [String(m.id), m]));
 
   const result: PackagingBox[] = [];
+  const perProductBoxCount = new Map<string, number>();
   for (const group of groups) {
     const boxes = (assignments ?? [])
       .filter((a: any) => String(a.product_id) === group.product_id)
@@ -107,9 +116,11 @@ export async function resolvePackagingPlan(env: Env, productGroups: ProductGroup
     if (!boxes.length) throw new Error(`No shipping box rules found for product ${group.product_id}`);
 
     const counts = pickBoxCounts(boxes, group.units);
+    let groupBoxCount = 0;
     for (const box of boxes) {
       const count = counts.get(box.boxModelId);
       if (!count) continue;
+      groupBoxCount += count;
       const existing = result.find(b => b.boxModelId === box.boxModelId);
       if (existing) existing.count += count;
       else result.push({
@@ -122,8 +133,9 @@ export async function resolvePackagingPlan(env: Env, productGroups: ProductGroup
         count
       });
     }
+    perProductBoxCount.set(group.product_id, groupBoxCount);
   }
-  return result;
+  return { boxes: result, perProductBoxCount };
 }
 
 export async function resolveShippingBoxPlan(

@@ -1,9 +1,9 @@
 import { getSupabase } from "./db";
 import { getPricingConfig, getCachedTaxes, getCachedVolumeDiscounts } from "./settings";
-import { calculatePriceV2, TaxRule, round as round2, embalajeBoxPriceArs } from "../lib/pricing";
+import { calculatePriceV2, TaxRule, round as round2, embalajeBoxPriceArs, embalajeShareForPack } from "../lib/pricing";
 import { resolveVolumeDiscountPercentage } from "../lib/products";
 import { ShippingInput } from "../lib/payment-input.validation";
-import { PackagingBox, resolvePackagingPlan, resolveShippingRate } from "./shipping.service";
+import { PackagingBox, ProductGroup, resolvePackagingPlan, resolveShippingRate } from "./shipping.service";
 
 // ─────────────────────────────────────────────────────────────
 // QUÉ HACE: Cotiza una orden (precio por ítem con descuento por volumen +
@@ -93,9 +93,8 @@ export interface OrderQuote {
   shippingArs: number;
   /** Cajas del pedido (una o más por modelo de maceta), con o sin envío. */
   packagingBoxes: PackagingBox[];
-  /** Precio de lista de una caja de embalaje. */
-  embalajeBoxPriceArs: number;
-  /** Embalaje total = cajas × precio por caja. */
+  /** Embalaje total, ya repartido dentro del precio de cada producto (`items[].price_ars`).
+   *  Informativo: no se suma aparte al total, ver `payment.ts` / `orders.repository.ts`. */
   embalajeArs: number;
   exchangeRate: number;
   paymentCommissionPercentage: number;
@@ -198,8 +197,37 @@ export async function buildOrderQuote(
     resolveVolumeDiscountPercentage((r.presentationQuantity * r.item.quantity) / r.unitsPerPackMaster, volumeDiscounts)
   ));
 
+  // Unidades totales por producto (todas sus presentaciones juntas), para el plan de cajas y
+  // para repartir el embalaje de cada producto entre sus líneas (ver embalajeShareForPack).
+  const productUnitsMap = new Map<string, number>();
+  for (const r of resolvedItems) {
+    const productId = String(r.product.id);
+    productUnitsMap.set(productId, (productUnitsMap.get(productId) ?? 0) + r.presentationQuantity * r.item.quantity);
+  }
+  const productGroups: ProductGroup[] = Array.from(productUnitsMap, ([product_id, units]) => ({ product_id, units }));
+
+  // Embalaje: se cobra por caja (una o más por modelo de maceta), no por pack, y se reparte
+  // dentro del precio de cada producto (nunca se comparte entre productos distintos). Aplica
+  // con cualquier método de entrega.
+  const packagingPlan = await resolvePackagingPlan(env, productGroups);
+  const boxPriceArs = embalajeBoxPriceArs(
+    pricingConfig.embalageCost,
+    pricingConfig.markups.embalaje,
+    pricingConfig.paymentCommissionPercentage
+  );
+  const productEmbalajeArsMap = new Map(
+    Array.from(packagingPlan.perProductBoxCount, ([productId, count]) => [productId, count * boxPriceArs])
+  );
+  let embalajeArsCharged = 0;
+
   for (const { item, variant, product, productName, costUsdMaster, unitsPerPackMaster, presentationQuantity, stockUnits } of resolvedItems) {
     const costUsdMasterWithDiscount = round2(costUsdMaster * (1 - discountPercentage / 100));
+    const productId = String(product.id);
+    const embalajePerPack = embalajeShareForPack(
+      productEmbalajeArsMap.get(productId) ?? 0,
+      productUnitsMap.get(productId) ?? 0,
+      presentationQuantity
+    );
 
     const pricing = calculatePriceV2({
       cost_usd_master: costUsdMasterWithDiscount,
@@ -213,13 +241,15 @@ export async function buildOrderQuote(
       payment_gross_up_percentage: pricingConfig.paymentCommissionPercentage
     });
 
-    const priceArs = Math.round(pricing.precio_final_ars);
+    // El embalaje no lleva IVA ni descuento por volumen: se suma tal cual al precio ya calculado.
+    const priceArs = Math.round(pricing.precio_final_ars) + embalajePerPack;
     const priceUsd = round2(priceArs / pricingConfig.exchangeRate);
     const itemSubtotalArs = priceArs * item.quantity;
     const itemSubtotalUsd = round2(priceUsd * item.quantity);
 
     subtotalArs += itemSubtotalArs;
     subtotalUsd += itemSubtotalUsd;
+    embalajeArsCharged += embalajePerPack * item.quantity;
 
     // Precio sin descuento por volumen, usado únicamente para mostrar el
     // desglose "Subtotal / Descuento" en el mail de confirmación de
@@ -235,7 +265,8 @@ export async function buildOrderQuote(
       packaging_cost: variant.has_packaging ? (pricingConfig.packagingCost ?? 0) : 0,
       payment_gross_up_percentage: pricingConfig.paymentCommissionPercentage
     });
-    const priceArsNoDiscount = Math.round(pricingNoDiscount.precio_final_ars);
+    // Mismo embalaje sin importar el descuento (el embalaje no se descuenta por volumen).
+    const priceArsNoDiscount = Math.round(pricingNoDiscount.precio_final_ars) + embalajePerPack;
     subtotalNoDiscountArs += priceArsNoDiscount * item.quantity;
 
     quoteItems.push({
@@ -253,7 +284,8 @@ export async function buildOrderQuote(
       price_ars: priceArs,
       price_usd: priceUsd,
       price_ars_no_discount: priceArsNoDiscount,
-      price_ars_no_tax: Math.round(pricing.precio_sin_impuestos_ars),
+      // El embalaje no lleva IVA, así que suma completo también acá (igual que en price_ars).
+      price_ars_no_tax: Math.round(pricing.precio_sin_impuestos_ars) + embalajePerPack,
       image_url: pickFirstImageUrl((product as { product_images?: Array<{ image_url: string; position: number }> }).product_images),
       subtotal_ars: itemSubtotalArs,
       subtotal_usd: itemSubtotalUsd,
@@ -265,21 +297,6 @@ export async function buildOrderQuote(
       unit_price: priceArs
     });
   }
-
-  const productGroups = Array.from(quoteItems.reduce((groups, item) => {
-    groups.set(item.product_id, (groups.get(item.product_id) ?? 0) + item.quantity * item.units_per_pack);
-    return groups;
-  }, new Map<string, number>()), ([product_id, units]) => ({ product_id, units }));
-
-  // Embalaje: se cobra por caja (una o más por modelo de maceta), no por pack. Aplica con cualquier
-  // método de entrega.
-  const packagingBoxes = await resolvePackagingPlan(env, productGroups);
-  const boxPriceArs = embalajeBoxPriceArs(
-    pricingConfig.embalageCost,
-    pricingConfig.markups.embalaje,
-    pricingConfig.paymentCommissionPercentage
-  );
-  const embalajeArs = packagingBoxes.reduce((sum, box) => sum + box.count, 0) * boxPriceArs;
 
   let shippingArs = 0;
   if (shipping.method === "delivery" && shipping.address?.postal_code) {
@@ -297,9 +314,8 @@ export async function buildOrderQuote(
     subtotalArs,
     subtotalUsd: round2(subtotalUsd),
     shippingArs,
-    packagingBoxes,
-    embalajeBoxPriceArs: boxPriceArs,
-    embalajeArs,
+    packagingBoxes: packagingPlan.boxes,
+    embalajeArs: embalajeArsCharged,
     exchangeRate: pricingConfig.exchangeRate,
     paymentCommissionPercentage: pricingConfig.paymentCommissionPercentage,
     subtotalNoDiscountArs

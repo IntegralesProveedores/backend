@@ -34,9 +34,9 @@ export interface TransferOrderEmailInput {
   items: TransferOrderEmailItem[];
   shipping: ShippingInput;
   shippingAmountArs: number;
-  /** Cajas del pedido (embalaje), con o sin envío. */
+  /** Cajas del pedido (embalaje), con o sin envío; el precio del embalaje ya está repartido
+   *  dentro de cada item.subtotal_ars, este bloque solo se usa para mostrar la lista. */
   packagingBoxes: PackagingBox[];
-  embalajeAmountArs: number;
   totalArs: number;
   volumeDiscountPercentage: number;
   vatLabel: string;
@@ -314,9 +314,8 @@ interface SummaryModel {
   /** "Sin impuestos Nacionales"; null si no está disponible. */
   subtotalNoTaxArs: number | null;
   vatLabel: string;
+  /** Solo para la lista de cajas: el embalaje ya está incluido en `productsTotalArs`. */
   packagingBoxes: PackagingBox[];
-  /** Costo del embalaje (0 en órdenes viejas, donde iba dentro del precio de cada pack). */
-  embalajeAmountArs: number;
   entrega: {
     method: "pickup" | "delivery" | "coordinar" | null;
     address: EntregaAddressInput | null;
@@ -379,8 +378,8 @@ function buildItemsCard(env: Env, model: SummaryModel): { html: string; text: st
   return { html, text };
 }
 
-/** Bloque "Embalaje": cantidad x modelo de caja y sus medidas. */
-function buildPackagingCard(boxes: PackagingBox[], amountArs: number): { html: string; text: string[] } {
+/** Bloque "Embalaje": cantidad x modelo de caja y sus medidas (sin precio: ya está en Productos). */
+function buildPackagingCard(boxes: PackagingBox[]): { html: string; text: string[] } {
   if (!boxes.length) return { html: "", text: [] };
   const rows = boxes.map(b => rowHtml(
     `<span style="font-family:${FONT_BODY};font-size:13px;font-weight:bold;color:${EMAIL_COLORS.title};">${b.count} x ${escapeHtmlForEmail(b.boxModelName)}</span>`,
@@ -388,10 +387,10 @@ function buildPackagingCard(boxes: PackagingBox[], amountArs: number): { html: s
     { padding: "2px 0" }
   )).join("");
   return {
-    html: cardHtml(`${rowHtml(labelHtml("Embalaje"), amountArs > 0 ? amountHtml(formatArs(amountArs)) : "", { padding: "2px 0" })}
+    html: cardHtml(`${labelHtml("Embalaje")}
       <div style="height:4px;line-height:4px;font-size:1px;">&nbsp;</div>
       ${rows}`),
-    text: [`EMBALAJE${amountArs > 0 ? `: ${formatArs(amountArs)}` : ""}`, ...boxes.map(b => `- ${b.count} x ${b.boxModelName} (${b.widthCm} x ${b.lengthCm} x ${b.heightCm} cm)`)]
+    text: ["EMBALAJE", ...boxes.map(b => `- ${b.count} x ${b.boxModelName} (${b.widthCm} x ${b.lengthCm} x ${b.heightCm} cm)`)]
   };
 }
 
@@ -511,7 +510,7 @@ function buildTotalCard(totalArs: number, vatLabel: string): { html: string; tex
 function buildSummaryBlocks(env: Env, model: SummaryModel): { html: string; text: string } {
   const blocks = [
     buildItemsCard(env, model),
-    buildPackagingCard(model.packagingBoxes, model.embalajeAmountArs),
+    buildPackagingCard(model.packagingBoxes),
     buildEntregaCard(model.entrega),
     buildPagoCard(model.pago),
     buildCommissionCard(model.commission),
@@ -652,7 +651,6 @@ export async function sendTransferOrderConfirmationEmail(env: Env, input: Transf
       subtotalNoTaxArs,
       vatLabel: input.vatLabel,
       packagingBoxes: input.packagingBoxes,
-      embalajeAmountArs: input.embalajeAmountArs,
       entrega: {
         method: input.shipping.method,
         address: input.shipping.address ?? null,
@@ -809,9 +807,11 @@ export async function sendMercadoPagoOrderConfirmationEmail(
     }
 
     // ---- Embalaje: las cajas no se guardan en la orden, se reconstruyen a partir de order_items
-    // (con el importe guardado en orders.embalaje_amount). En órdenes viejas el embalaje iba
-    // dentro del precio de cada pack: ahí solo se muestran las cajas del envío a domicilio. ----
-    const embalajeAmountArs = Number(order.embalaje_amount ?? 0);
+    // (el importe ya está repartido dentro de order_items.unit_price, guardado en
+    // orders.embalaje_amount solo para el registro). En órdenes viejas (antes del reparto por
+    // caja) el embalaje iba dentro del precio de cada pack: ahí solo se muestran las cajas del
+    // envío a domicilio, sin relación con lo cobrado. ----
+    const hasBoxEmbalaje = Number(order.embalaje_amount ?? 0) > 0;
     let packagingBoxes: PackagingBox[] = [];
     const productGroups = Array.from(items.reduce((acc, item) => {
       const variant = getVariant(item.product_variants);
@@ -822,8 +822,8 @@ export async function sendMercadoPagoOrderConfirmationEmail(
       return acc;
     }, new Map<string, number>()), ([product_id, units]) => ({ product_id, units }));
     try {
-      if (embalajeAmountArs > 0) {
-        packagingBoxes = await resolvePackagingPlan(env, productGroups);
+      if (hasBoxEmbalaje) {
+        packagingBoxes = (await resolvePackagingPlan(env, productGroups)).boxes;
       } else if (address?.shipping_method === "delivery" && address.postal_code) {
         const resolution = await resolveShippingRate(env, address.postal_code, productGroups, address.province);
         packagingBoxes = resolution?.boxes ?? [];
@@ -843,7 +843,6 @@ export async function sendMercadoPagoOrderConfirmationEmail(
       subtotalNoTaxArs: null,
       vatLabel,
       packagingBoxes,
-      embalajeAmountArs,
       entrega: {
         method: address?.shipping_method ?? null,
         address,

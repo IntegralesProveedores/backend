@@ -58,6 +58,22 @@ export function embalajeBoxPriceArs(
 }
 
 /**
+ * Parte del embalaje de un producto que le corresponde a una presentación (pack): el embalaje
+ * del producto (sus propias cajas, nunca compartidas con otro producto) se reparte entre sus
+ * unidades totales en el pedido, proporcional a las unidades de cada pack. Se usa tanto en el
+ * backend (orden) como en el frontend (carrito, con el mismo cálculo) para que el precio de
+ * cada línea coincida en los dos lados.
+ */
+export function embalajeShareForPack(
+  productEmbalajeArs: number,
+  productTotalUnits: number,
+  presentationUnitsPerPack: number
+): number {
+  if (productTotalUnits <= 0) return 0;
+  return Math.round((productEmbalajeArs / productTotalUnits) * presentationUnitsPerPack);
+}
+
+/**
  * Implementación definitiva del Motor de Precios V2.
  * Sigue el flujo: Costo Master -> Precio Unitario -> Costo Presentación -> Embalaje -> Rentabilidad.
  * @param input - Objeto de tipo PricingInput con los parámetros de cotización

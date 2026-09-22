@@ -101,7 +101,8 @@ export async function handleCreateOrder({ request, env }: { request: Request; en
     }
 
     const paymentMethod = body.payment_method;
-    const payment = calculateOrderPayment(quote.subtotalArs + quote.embalajeArs, quote.shippingArs, paymentMethod, quote.paymentCommissionPercentage);
+    // quote.subtotalArs ya incluye el embalaje (repartido en el precio de cada producto).
+    const payment = calculateOrderPayment(quote.subtotalArs, quote.shippingArs, paymentMethod, quote.paymentCommissionPercentage);
 
     try {
       assertExpectedTotal(parseExpectedTotal(body.expected_total_ars), payment.total);
@@ -171,7 +172,6 @@ export async function handleCreateOrder({ request, env }: { request: Request; en
         shipping,
         shippingAmountArs: quote.shippingArs,
         packagingBoxes: quote.packagingBoxes,
-        embalajeAmountArs: quote.embalajeArs,
         totalArs: payment.total,
         volumeDiscountPercentage,
         vatLabel,

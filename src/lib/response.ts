@@ -1,3 +1,5 @@
+import { logEvent } from "./log";
+
 // ─────────────────────────────────────────────────────────────
 // QUÉ HACE: Helper centralizado para respuestas JSON con CORS y Logs
 // POR QUÉ:  Evita duplicación en cada route (Problema B2) y garantiza observabilidad (B10)
@@ -22,13 +24,13 @@ export function errorResponse(message: string, status = 500, details?: any) {
   const errorId = crypto.randomUUID();
   
   // Log estructurado (B10)
-  console.error(JSON.stringify({
+  logEvent("error", "http_error", {
     error_id: errorId,
     timestamp: new Date().toISOString(),
     status,
     message,
     details
-  }));
+  });
 
   return jsonResponse({ 
     error: message, 
@@ -39,7 +41,7 @@ export function errorResponse(message: string, status = 500, details?: any) {
 
 /** 409: el total cambió desde que el cliente lo vio. El frontend refresca precios y pide confirmar de nuevo. */
 export function priceChangedResponse(currentTotalArs: number, expectedTotalArs: number) {
-  console.warn(JSON.stringify({ event: "price_changed", current_total_ars: currentTotalArs, expected_total_ars: expectedTotalArs }));
+  logEvent("warn", "price_changed", { current_total_ars: currentTotalArs, expected_total_ars: expectedTotalArs });
   return jsonResponse({
     error: "price_changed",
     status: 409,

@@ -1,4 +1,5 @@
 import { getSupabase } from "./db";
+import { logEvent } from "../lib/log";
 import { MercadoPagoService } from "./mercadopago.service";
 
 // ─────────────────────────────────────────────────────────────
@@ -132,13 +133,13 @@ export async function releaseAbandonedOrders(env: Env): Promise<StockReleaseResu
       }
       // Si MP tiene un pago aprobado, el webhook se perdió: no se cancela (revisar a mano).
       if (await mercadoPago.hasApprovedPayment(order.external_reference)) {
-        console.error(JSON.stringify({ event: "stock_release_skipped_paid_order", order_id: order.id }));
+        logEvent("error", "stock_release_skipped_paid_order", { order_id: order.id });
         result.skipped.push(order.id);
         return;
       }
       if (await cancelAndRestore(env, order.id)) result.released.push(order.id);
     } catch (error) {
-      console.error(JSON.stringify({ event: "stock_release_failed", order_id: order.id, message: String(error) }));
+      logEvent("error", "stock_release_failed", { order_id: order.id, message: String(error) });
       result.skipped.push(order.id);
     }
   });
@@ -150,12 +151,12 @@ export async function releaseAbandonedOrders(env: Env): Promise<StockReleaseResu
       try {
         if (await cancelAndRestore(env, order.id)) result.released.push(order.id);
       } catch (error) {
-        console.error(JSON.stringify({ event: "stock_release_failed", order_id: order.id, message: String(error) }));
+        logEvent("error", "stock_release_failed", { order_id: order.id, message: String(error) });
         result.skipped.push(order.id);
       }
     });
   }
 
-  console.log(JSON.stringify({ event: "stock_release_run", released: result.released.length, skipped: result.skipped.length }));
+  logEvent("log", "stock_release_run", { released: result.released.length, skipped: result.skipped.length });
   return result;
 }

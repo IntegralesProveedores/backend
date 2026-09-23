@@ -1,5 +1,6 @@
 import { RouteContext } from "../lib/router";
 import { errorResponse, jsonResponse } from "../lib/response";
+import { logEvent, setOrderRef } from "../lib/log";
 import { PaymentService } from "../services/mercadopago-checkout.service";
 
 function normalizePaymentId(value: unknown): string | null {
@@ -19,13 +20,12 @@ export async function handleMercadoPagoWebhook({ request, env, url }: RouteConte
     (topic !== null && topic !== "payment") ||
     (type !== null && type !== "payment")
   ) {
-    console.log(JSON.stringify({
-      event: "mercadopago_webhook_ignored_topic",
+    logEvent("log", "mercadopago_webhook_ignored_topic", {
       topic: notificationTopic,
       detail: !hasDataId && topic !== null
         ? "formato IPN legado"
         : "notificación sin data.id o con tipo distinto de payment"
-    }));
+    });
     return jsonResponse({ success: true, ignored: true });
   }
 
@@ -47,39 +47,36 @@ export async function handleMercadoPagoWebhook({ request, env, url }: RouteConte
       paymentId
     );
     if (!signatureValid) {
-      console.warn(JSON.stringify({
-        event: "mercadopago_webhook_rejected",
-        request_id: requestId,
+      logEvent("warn", "mercadopago_webhook_rejected", {
+        mp_request_id: requestId,
         payment_id: paymentId,
         duration_ms: Date.now() - startedAt
-      }));
+      });
       return errorResponse("Invalid Mercado Pago webhook signature", 401);
     }
 
     const payment = await paymentService.getPayment(paymentId);
+    setOrderRef(payment.external_reference);
     await paymentService.processPayment(payment, requestId);
 
-    console.log(JSON.stringify({
-      event: "mercadopago_webhook_received",
-      request_id: requestId,
+    logEvent("log", "mercadopago_webhook_received", {
+      mp_request_id: requestId,
       payment_id: String(payment.id),
-      external_reference: payment.external_reference,
       status: payment.status,
       duration_ms: Date.now() - startedAt
-    }));
+    });
 
     return jsonResponse({ success: true });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : "Unable to process Mercado Pago webhook";
     const stack = error instanceof Error ? error.stack : undefined;
-    console.error(JSON.stringify({
-      event: "mercadopago_webhook_error",
-      request_id: requestId,
+    logEvent("error", "mercadopago_webhook_error", {
+      mp_request_id: requestId,
       payment_id: paymentId,
       error: message,
       stack,
       duration_ms: Date.now() - startedAt
-    }));
+    });
     return errorResponse("Unable to process Mercado Pago webhook", 500, { original_message: message, stack });
   }
 }

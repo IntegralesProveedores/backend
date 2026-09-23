@@ -1,3 +1,4 @@
+import { logEvent } from "../lib/log";
 import {
   MercadoPagoApiErrorPayload,
   MercadoPagoPaymentResponse,
@@ -58,19 +59,18 @@ export class MercadoPagoService {
     secret: string
   ): Promise<boolean> {
     if (!xSignature || !xRequestId || !dataId || !secret) {
-      console.error(JSON.stringify({
-        event: "mp_signature_missing_input",
+      logEvent("error", "mp_signature_missing_input", {
         has_x_signature: !!xSignature,
         has_x_request_id: !!xRequestId,
         has_data_id: !!dataId,
         has_secret: !!secret
-      }));
+      });
       return false;
     }
 
     const signature = this.parseSignature(xSignature);
     if (!signature) {
-      console.error(JSON.stringify({ event: "mp_signature_parse_failed", x_signature: xSignature }));
+      logEvent("error", "mp_signature_parse_failed", { x_signature: xSignature });
       return false;
     }
 
@@ -80,12 +80,11 @@ export class MercadoPagoService {
       : rawTimestamp;
     const now = Math.floor(Date.now() / 1000);
     if (!Number.isInteger(timestamp) || Math.abs(now - timestamp) > WEBHOOK_SIGNATURE_TOLERANCE_SECONDS) {
-      console.error(JSON.stringify({
-        event: "mp_signature_timestamp_out_of_range",
+      logEvent("error", "mp_signature_timestamp_out_of_range", {
         ts_received: signature.timestamp,
         now,
         diff: now - timestamp
-      }));
+      });
       return false;
     }
 
@@ -103,12 +102,11 @@ export class MercadoPagoService {
     const isValid = this.constantTimeEqual(expected, signature.value.toLowerCase());
 
     if (!isValid) {
-      console.error(JSON.stringify({
-        event: "mp_signature_mismatch",
+      logEvent("error", "mp_signature_mismatch", {
         template,
         received_hash: signature.value,
         has_secret: !!secret
-      }));
+      });
     }
 
     return isValid;

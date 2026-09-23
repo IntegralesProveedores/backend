@@ -1,3 +1,4 @@
+import { logEvent, setOrderRef } from "../lib/log";
 import { getSupabase } from "../services/db";
 import { errorResponse, jsonResponse, priceChangedResponse } from "../lib/response";
 import { calculateOrderPayment } from "../lib/pricing";
@@ -106,7 +107,10 @@ export async function handleCreateOrder({ request, env }: { request: Request; en
       // Reintento del mismo intento de pago (doble click, recarga, red): la orden
       // ya se creó, se devuelve su referencia en vez de crear una duplicada.
       const existing = await findOrderByIdempotencyKey(env, idempotencyKey);
-      if (existing) return jsonResponse({ order_ref: existing.external_reference, duplicate: true });
+      if (existing) {
+        setOrderRef(existing.external_reference);
+        return jsonResponse({ order_ref: existing.external_reference, duplicate: true });
+      }
     }
 
     let quote;
@@ -130,6 +134,7 @@ export async function handleCreateOrder({ request, env }: { request: Request; en
     }
 
     const orderRef = crypto.randomUUID();
+    setOrderRef(orderRef);
 
     let order: { id: string };
     try {
@@ -175,6 +180,8 @@ export async function handleCreateOrder({ request, env }: { request: Request; en
         await supabase.from("orders").delete().eq("id", order.id);
         return errorResponse("Insufficient stock to complete the order", 409, { supabase_error: stockError.message });
       }
+
+      logEvent("log", "order_created", { order_id: order.id, payment_method: paymentMethod, total_ars: payment.total });
 
       const ivaTax = quote.taxes.find(t => t.name.toUpperCase() === "IVA");
       const vatLabel = ivaTax?.is_computable ? "IVA Incluido" : "IVA no incluido";
@@ -272,6 +279,41 @@ export async function handleAbandonOrder({ request, env }: { request: Request; e
   } catch (e: any) {
     return errorResponse("Unable to release the order", 500, { original_message: e.message, stack: e.stack });
   }
+}
+
+export type OrderPaymentState = "approved" | "pending" | "rejected";
+
+const REJECTED_PAYMENT_STATUSES = new Set(["rejected", "cancelled", "refunded", "charged_back"]);
+
+/** Resume el estado de la orden en lo único que necesita la página de éxito. */
+export function toOrderPaymentState(order: { status: string | null; payment_status: string | null }): OrderPaymentState {
+  if (order.payment_status === "approved" || order.status === "paid") return "approved";
+  if (order.status === "cancelled" || REJECTED_PAYMENT_STATUSES.has(order.payment_status ?? "")) return "rejected";
+  return "pending";
+}
+
+/**
+ * Estado del pago por N° de orden (`external_reference`), para que /orden/exito no confíe
+ * en los parámetros con los que vuelve Mercado Pago. Sin autenticación: el UUID solo lo
+ * conoce quien inició el pago, y la respuesta no incluye datos personales ni montos.
+ */
+export async function handleGetOrderPaymentState({ env, params, request }: { env: any; params: Record<string, string>; request: Request }) {
+  const limited = await enforceRateLimit(env, request, "orders/status");
+  if (limited) return limited;
+
+  const externalReference = params.externalReference;
+  if (!UUID_REGEX.test(externalReference)) return errorResponse("Invalid external_reference", 400);
+
+  const { data, error } = await getSupabase(env)
+    .from("orders")
+    .select("status, payment_status")
+    .eq("external_reference", externalReference)
+    .maybeSingle();
+
+  if (error) return errorResponse("Unable to load order status", 500);
+  if (!data) return errorResponse("Order not found", 404);
+
+  return jsonResponse({ payment: toOrderPaymentState(data) });
 }
 
 /**

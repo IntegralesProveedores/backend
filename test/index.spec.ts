@@ -13,6 +13,13 @@ describe('Worker Routes Integration Tests', () => {
 		expect(await response.text()).toMatchInlineSnapshot(`"Not Found"`);
 	});
 
+	it('cada respuesta trae un X-Request-Id distinto', async () => {
+		const a = await SELF.fetch('https://example.com/unknown-route');
+		const b = await SELF.fetch('https://example.com/unknown-route');
+		expect(a.headers.get('X-Request-Id')).toMatch(/^[0-9a-f-]{36}$/);
+		expect(a.headers.get('X-Request-Id')).not.toBe(b.headers.get('X-Request-Id'));
+	});
+
 	it('rejects Mercado Pago webhook with an invalid signature', async () => {
 		const context = createExecutionContext();
 		const response = await worker.fetch(new IncomingRequest(

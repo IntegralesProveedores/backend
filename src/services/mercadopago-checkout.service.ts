@@ -16,6 +16,7 @@ import {
   validateShippingInput,
   MAX_ORDER_ITEMS
 } from "../lib/payment-input.validation";
+import { logEvent, setOrderRef } from "../lib/log";
 import { createOrderRecord, findOrderByIdempotencyKey, DuplicateOrderError } from "./orders.repository";
 import { sendMercadoPagoOrderConfirmationEmail } from "./email/order-confirmation-templates";
 import { assertExpectedTotal, buildOrderQuote, OrderQuote, OrderQuoteError } from "./order-quote.service";
@@ -71,6 +72,7 @@ export class PaymentService {
     }
 
     const externalReference = crypto.randomUUID();
+    setOrderRef(externalReference);
     let createdOrder: { id: string };
     try {
       createdOrder = await createOrderRecord(
@@ -123,6 +125,7 @@ export class PaymentService {
       });
       if (stockError) throw new OrderQuoteError("Insufficient stock to complete the order");
 
+      logEvent("log", "order_created", { order_id: createdOrder.id, payment_method: "mercadopago", total_ars: payment.total });
       return { init_point: preference.init_point };
     } catch (error) {
       await supabase
@@ -146,6 +149,7 @@ export class PaymentService {
     quote: OrderQuote,
     payment: ReturnType<typeof calculateOrderPayment>
   ): Promise<{ init_point: string }> {
+    setOrderRef(existing.external_reference);
     const supabase = getSupabase(this.env);
     const { data: updatedRows, error: updateError } = await supabase
       .from("orders")
@@ -212,14 +216,12 @@ export class PaymentService {
 
     const order = orderData as unknown as OrderPaymentRow;
     if (order.status === "paid" && order.payment_status === "approved") {
-      console.log(JSON.stringify({
-        event: "mercadopago_payment_idempotent_skip",
-        request_id: requestId,
+      logEvent("log", "mercadopago_payment_idempotent_skip", {
+        mp_request_id: requestId,
         payment_id: String(payment.id),
-        external_reference: externalReference,
         payment_status: payment.status,
         update_result: "already_approved"
-      }));
+      });
       return;
     }
 
@@ -312,14 +314,12 @@ export class PaymentService {
       if (stockError) throw new Error(`Unable to decrement stock: ${stockError.message}`);
     }
 
-    console.log(JSON.stringify({
-      event: "mercadopago_payment_processed",
-      request_id: requestId,
+    logEvent("log", "mercadopago_payment_processed", {
+      mp_request_id: requestId,
       payment_id: paymentId,
-      external_reference: externalReference,
       payment_status: payment.status,
       update_result: payment.status === "approved" ? "approved_order_updated" : "order_updated"
-    }));
+    });
   }
 
   private getOrderStatus(status: MercadoPagoPaymentStatus): "pending" | "paid" | "cancelled" {

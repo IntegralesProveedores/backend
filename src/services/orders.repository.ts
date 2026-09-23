@@ -8,6 +8,29 @@ import { PaymentCustomerInput, ShippingInput } from "../lib/payment-input.valida
 //           con envío, email y checkout de MP.
 // ─────────────────────────────────────────────────────────────
 
+/** Ya existe una orden con ese idempotency_key: dos requests del mismo intento
+ *  (doble click, reintento de red) chocaron contra la restricción única de la
+ *  tabla casi al mismo tiempo. El llamador debe tratar esto como éxito, no error. */
+export class DuplicateOrderError extends Error {
+  constructor(public readonly orderId: string, public readonly externalReference: string) {
+    super(`Duplicate order for idempotency_key (order ${orderId})`);
+    this.name = "DuplicateOrderError";
+  }
+}
+
+export async function findOrderByIdempotencyKey(
+  env: Env,
+  idempotencyKey: string
+): Promise<{ id: string; external_reference: string } | null> {
+  const { data, error } = await getSupabase(env)
+    .from("orders")
+    .select("id, external_reference")
+    .eq("idempotency_key", idempotencyKey)
+    .maybeSingle();
+  if (error) throw new Error(`Unable to check idempotency_key: ${error.message}`);
+  return data as { id: string; external_reference: string } | null;
+}
+
 export async function createOrderRecord(
   env: Env,
   customer: PaymentCustomerInput,
@@ -29,7 +52,8 @@ export async function createOrderRecord(
   embalajeAmount: number,
   paymentMethod: string,
   paymentDiscountPercentage: number,
-  paymentDiscountAmount: number
+  paymentDiscountAmount: number,
+  idempotencyKey?: string
 ): Promise<{ id: string }> {
   const supabase = getSupabase(env);
   const { data, error } = await supabase
@@ -52,12 +76,20 @@ export async function createOrderRecord(
       status: "pending",
       payment_status: "pending",
       shipping_status: "pending",
-      external_reference: externalReference
+      external_reference: externalReference,
+      idempotency_key: idempotencyKey ?? null
     })
     .select("id")
     .single();
 
-  if (error || !data) throw new Error(`Unable to create order: ${error?.message ?? "unknown error"}`);
+  if (error || !data) {
+    // 23505 = unique_violation: otra request con el mismo idempotency_key ganó la carrera.
+    if (error?.code === "23505" && idempotencyKey) {
+      const existing = await findOrderByIdempotencyKey(env, idempotencyKey);
+      if (existing) throw new DuplicateOrderError(existing.id, existing.external_reference);
+    }
+    throw new Error(`Unable to create order: ${error?.message ?? "unknown error"}`);
+  }
   const order = data as unknown as { id: string };
 
   try {

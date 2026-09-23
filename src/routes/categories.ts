@@ -41,50 +41,58 @@ export async function handleCategories({ env, url, request }: RouteContext) {
   const limited = await enforceRateLimit(env, request, "categories/list");
   if (limited) return limited;
 
-  const supabase = getSupabase(env);
-  const asTree = url.searchParams.get("tree") === "1";
+  try {
+    const supabase = getSupabase(env);
+    const asTree = url.searchParams.get("tree") === "1";
 
-  const { data, error } = await supabase
-    .from("categories")
-    .select("id, name, slug, description, parent_id, position, created_at")
-    .order("position", { ascending: true })
-    .order("name", { ascending: true });
+    const { data, error } = await supabase
+      .from("categories")
+      .select("id, name, slug, description, parent_id, position, created_at")
+      .order("position", { ascending: true })
+      .order("name", { ascending: true });
 
-  if (error) {
-    return errorResponse("Unable to load categories", 500, { supabase_error: error.message });
+    if (error) {
+      return errorResponse("Unable to load categories", 500, { supabase_error: error.message });
+    }
+
+    const cleaned = (data ?? []).map(cleanCategory);
+    return jsonResponse(asTree ? buildCategoryTree(cleaned) : cleaned, 200, 60);
+  } catch (e: any) {
+    return errorResponse("Unable to load categories", 500, { original_message: e.message, stack: e.stack });
   }
-
-  const cleaned = (data ?? []).map(cleanCategory);
-  return jsonResponse(asTree ? buildCategoryTree(cleaned) : cleaned, 200, 60);
 }
 
 export async function handleCategoryBySlug({ env, params, request }: RouteContext) {
   const limited = await enforceRateLimit(env, request, "categories/get");
   if (limited) return limited;
 
-  const supabase = getSupabase(env);
-  const { slug } = params;
+  try {
+    const supabase = getSupabase(env);
+    const { slug } = params;
 
-  const { data, error } = await supabase
-    .from("categories")
-    .select("id, name, slug, description, parent_id, position, created_at")
-    .eq("slug", slug)
-    .single();
+    const { data, error } = await supabase
+      .from("categories")
+      .select("id, name, slug, description, parent_id, position, created_at")
+      .eq("slug", slug)
+      .single();
 
-  if (error || !data) {
-    return errorResponse("Category not found", 404);
+    if (error || !data) {
+      return errorResponse("Category not found", 404);
+    }
+
+    const { data: children } = await supabase
+      .from("categories")
+      .select("id, name, slug, description, parent_id, position, created_at")
+      .eq("parent_id", data.id)
+      .order("position", { ascending: true });
+
+    return jsonResponse({
+      ...cleanCategory(data),
+      children: (children ?? []).map(cleanCategory)
+    });
+  } catch (e: any) {
+    return errorResponse("Unable to load category", 500, { original_message: e.message, stack: e.stack });
   }
-
-  const { data: children } = await supabase
-    .from("categories")
-    .select("id, name, slug, description, parent_id, position, created_at")
-    .eq("parent_id", data.id)
-    .order("position", { ascending: true });
-
-  return jsonResponse({
-    ...cleanCategory(data),
-    children: (children ?? []).map(cleanCategory)
-  });
 }
 
 export async function handleCategoryProducts({ env, params, url, request }: RouteContext) {

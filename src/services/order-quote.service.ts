@@ -138,31 +138,38 @@ export async function buildOrderQuote(
     stockUnits: number;
   }> = [];
 
-  for (const item of items) {
-    const { data: variant, error } = await supabase
-      .from("product_variants")
-      .select(`
+  // Una sola consulta para todas las variantes del carrito (antes era 1 consulta secuencial
+  // por ítem: con MAX_ORDER_ITEMS=50 podían ser hasta 50 idas y vueltas a la base en el
+  // momento de pagar, arriesgando el límite de subsolicitudes de una invocación del Worker).
+  const variantIds = [...new Set(items.map(item => item.variant_id))];
+  const { data: variantRows, error: variantsError } = await supabase
+    .from("product_variants")
+    .select(`
+      id,
+      sku,
+      stock,
+      units_per_pack,
+      is_active,
+      deleted_at,
+      has_packaging,
+      products (
         id,
-        sku,
-        stock,
-        units_per_pack,
-        is_active,
-        deleted_at,
-        has_packaging,
-        products (
-          id,
-          name,
-          cost_usd,
-          units_per_pack_master,
-          cost_currency,
-          stock_units,
-          product_images ( image_url, position )
-        )
-      `)
-      .eq("id", item.variant_id)
-      .single();
+        name,
+        cost_usd,
+        units_per_pack_master,
+        cost_currency,
+        stock_units,
+        product_images ( image_url, position )
+      )
+    `)
+    .in("id", variantIds);
+  if (variantsError) throw new OrderQuoteError(`Unable to load variants: ${variantsError.message}`);
+  const variantsById = new Map((variantRows ?? []).map((v: any) => [v.id, v]));
 
-    if (error || !variant) {
+  for (const item of items) {
+    const variant = variantsById.get(item.variant_id);
+
+    if (!variant) {
       throw new OrderQuoteError(`Variant not found: ${item.variant_id}`);
     }
     if (!variant.is_active || variant.deleted_at !== null) {

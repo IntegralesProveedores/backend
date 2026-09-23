@@ -145,7 +145,10 @@ export class MercadoPagoService {
 
     const response = await fetch(`${MERCADO_PAGO_API_URL}${path}`, {
       ...init,
-      headers
+      headers,
+      // Sin esto, una API de Mercado Pago colgada dejaba la invocación del Worker esperando
+      // sin límite propio (checkout, webhook o el cron de liberación de stock, según quién llame).
+      signal: AbortSignal.timeout(8000)
     });
 
     const payload = await this.readPayload(response);

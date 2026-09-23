@@ -16,7 +16,6 @@ export interface ShippingBox {
   heightCm: number;
   weightKg: number;
   count: number;
-  unitPriceArs: number;
 }
 
 export interface ProductGroup {
@@ -193,7 +192,7 @@ export async function resolveShippingBoxPlan(
       totalPrice += count * box.priceArs;
       const existing = result.boxes.find(b => b.boxModelId === box.boxModelId);
       if (existing) existing.count += count;
-      else result.boxes.push({ boxModelId: box.boxModelId, boxModelName: box.name, widthCm: box.widthCm, lengthCm: box.lengthCm, heightCm: box.heightCm, weightKg: box.weightKg, count, unitPriceArs: box.priceArs });
+      else result.boxes.push({ boxModelId: box.boxModelId, boxModelName: box.name, widthCm: box.widthCm, lengthCm: box.lengthCm, heightCm: box.heightCm, weightKg: box.weightKg, count });
     }
     result.totalPriceArs += Math.round(totalPrice);
   }
@@ -253,6 +252,13 @@ export async function resolveShippingRate(
   if (postalError) throw new Error(`Unable to resolve province for postal code: ${postalError.message}`);
 
   let zoneName = pickPostalCodeProvince(postalRows ?? [], preferredProvince);
+
+  // 1.b) Gran Buenos Aires tarifa como CABA, no como el interior de la provincia:
+  //      dentro de "Buenos Aires" separamos el conurbano (CP 1600-1899) a su propia zona.
+  if (zoneName === "Buenos Aires") {
+    const cp = Number.parseInt(normalizedPostalCode, 10);
+    if (cp >= 1600 && cp <= 1899) zoneName = "Gran Buenos Aires";
+  }
 
   // 2) Fallback: si el código postal no está cargado en postal_codes_ar,
   //    usamos el esquema anterior por rango (CABA_PBA / RESTO_PAIS) para no romper el checkout.

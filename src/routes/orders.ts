@@ -1,7 +1,7 @@
 import { getSupabase } from "../services/db";
 import { errorResponse, jsonResponse, priceChangedResponse } from "../lib/response";
 import { calculateOrderPayment } from "../lib/pricing";
-import { createOrderRecord } from "../services/orders.repository";
+import { createOrderRecord, findOrderByIdempotencyKey, DuplicateOrderError } from "../services/orders.repository";
 import {
   parseShippingInput,
   PaymentInputError,
@@ -10,7 +10,8 @@ import {
   ShippingInput,
   MAX_ORDER_ITEMS,
   isValidEmail,
-  parseExpectedTotal
+  parseExpectedTotal,
+  parseIdempotencyKey
 } from "../lib/payment-input.validation";
 import { assertExpectedTotal, buildOrderQuote, OrderQuoteError, PriceChangedError } from "../services/order-quote.service";
 import { sendTransferOrderConfirmationEmail } from "../services/email/order-confirmation-templates";
@@ -41,6 +42,7 @@ type OrderBody = {
   payment_method?: string;
   turnstile_token?: string;
   expected_total_ars?: unknown;
+  idempotency_key?: unknown;
 };
 
 export async function handleCreateOrder({ request, env }: { request: Request; env: any }) {
@@ -92,6 +94,21 @@ export async function handleCreateOrder({ request, env }: { request: Request; en
       }
     }
 
+    let idempotencyKey: string | undefined;
+    try {
+      idempotencyKey = parseIdempotencyKey(body.idempotency_key);
+    } catch (error) {
+      if (error instanceof PaymentInputError) return errorResponse(error.message, 400);
+      throw error;
+    }
+
+    if (idempotencyKey) {
+      // Reintento del mismo intento de pago (doble click, recarga, red): la orden
+      // ya se creó, se devuelve su referencia en vez de crear una duplicada.
+      const existing = await findOrderByIdempotencyKey(env, idempotencyKey);
+      if (existing) return jsonResponse({ order_ref: existing.external_reference, duplicate: true });
+    }
+
     let quote;
     try {
       quote = await buildOrderQuote(env, items, shipping);
@@ -114,29 +131,38 @@ export async function handleCreateOrder({ request, env }: { request: Request; en
 
     const orderRef = crypto.randomUUID();
 
-    const order = await createOrderRecord(
-      env,
-      customer,
-      quote.items.map(item => ({
-        variant_id: item.variant_id,
-        product_id: item.product_id,
-        sku: item.sku,
-        product_name: item.product_name,
-        quantity: item.quantity,
-        units_per_pack: item.units_per_pack,
-        units_per_pack_master: item.units_per_pack_master,
-        unit_price: item.price_ars
-      })),
-      quote.subtotalArs,
-      quote.exchangeRate,
-      orderRef,
-      shipping,
-      quote.shippingArs,
-      quote.embalajeArs,
-      paymentMethod,
-      payment.paymentDiscountPercentage,
-      payment.paymentDiscountAmount
-    );
+    let order: { id: string };
+    try {
+      order = await createOrderRecord(
+        env,
+        customer,
+        quote.items.map(item => ({
+          variant_id: item.variant_id,
+          product_id: item.product_id,
+          sku: item.sku,
+          product_name: item.product_name,
+          quantity: item.quantity,
+          units_per_pack: item.units_per_pack,
+          units_per_pack_master: item.units_per_pack_master,
+          unit_price: item.price_ars
+        })),
+        quote.subtotalArs,
+        quote.exchangeRate,
+        orderRef,
+        shipping,
+        quote.shippingArs,
+        quote.embalajeArs,
+        paymentMethod,
+        payment.paymentDiscountPercentage,
+        payment.paymentDiscountAmount,
+        idempotencyKey
+      );
+    } catch (error) {
+      if (error instanceof DuplicateOrderError) {
+        return jsonResponse({ order_ref: error.externalReference, duplicate: true });
+      }
+      throw error;
+    }
 
     if (paymentMethod === "transferencia") {
       // El stock se descuenta al confirmar el pedido (no al acreditarse la

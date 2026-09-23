@@ -32,7 +32,7 @@ export async function verifyTurnstile(env: any, request: Request, token: unknown
   if (ip) form.append("remoteip", ip);
 
   try {
-    const response = await fetch(SITEVERIFY_URL, { method: "POST", body: form });
+    const response = await fetch(SITEVERIFY_URL, { method: "POST", body: form, signal: AbortSignal.timeout(5000) });
     const result = await response.json() as { success?: boolean; "error-codes"?: string[] };
     if (!result.success) {
       return errorResponse("Captcha verification failed", 400, { codes: result["error-codes"] });

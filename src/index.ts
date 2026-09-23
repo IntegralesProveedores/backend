@@ -22,17 +22,25 @@ const CORS_HEADERS = {
   "Access-Control-Allow-Headers": "Content-Type"
 };
 
-const ALLOWED_ORIGINS = [
+const PRODUCTION_ORIGINS = [
   "https://brotalia.com.ar",
-  "https://www.brotalia.com.ar",
-  "http://localhost:4200"
+  "https://www.brotalia.com.ar"
 ];
 
-function withCors(request: Request, response: Response): Response {
+// localhost solo se permite en desarrollo local (wrangler dev con .dev.vars),
+// nunca en producción: ahí APP_BASE_URL es el dominio real de Brotalia.
+function allowedOrigins(env: any): string[] {
+  if (typeof env?.APP_BASE_URL === "string" && env.APP_BASE_URL.includes("localhost")) {
+    return [...PRODUCTION_ORIGINS, "http://localhost:4200"];
+  }
+  return PRODUCTION_ORIGINS;
+}
+
+function withCors(request: Request, env: any, response: Response): Response {
   const headers = new Headers(response.headers);
   Object.entries(CORS_HEADERS).forEach(([key, value]) => headers.set(key, value));
   const origin = request.headers.get("Origin");
-  if (origin && ALLOWED_ORIGINS.includes(origin)) {
+  if (origin && allowedOrigins(env).includes(origin)) {
     headers.set("Access-Control-Allow-Origin", origin);
   } else {
     headers.delete("Access-Control-Allow-Origin");
@@ -75,19 +83,19 @@ router.post("/api/webhooks/mercadopago", handleMercadoPagoWebhook);
 
 export default {
   async fetch(request: Request, env: any) {
+    const sanitizedEnv = sanitizeEnv(env);
+
     if (request.method === "OPTIONS") {
-      return withCors(request, new Response(null, { status: 204, headers: CORS_HEADERS }));
+      return withCors(request, sanitizedEnv, new Response(null, { status: 204, headers: CORS_HEADERS }));
     }
 
     const hostHeader = (request.headers.get("host") || "").toLowerCase();
 
-    const sanitizedEnv = sanitizeEnv(env);
-
     try {
       const response = await router.handle(request, sanitizedEnv);
-      return withCors(request, response);
+      return withCors(request, sanitizedEnv, response);
     } catch (e: any) {
-      return withCors(request,
+      return withCors(request, sanitizedEnv,
         errorResponse("Internal server error", 500, {
           original_message: e.message,
           stack: e.stack,

@@ -56,6 +56,19 @@ export interface CreatePaymentInput {
   shipping: ShippingInput;
   /** Total que el cliente vio en pantalla; si difiere del calculado, la orden se rechaza (ver assertExpectedTotal). */
   expected_total_ars?: number;
+  /** Identifica un mismo intento de pago (doble click, recarga, reintento de red) para no duplicar la orden. */
+  idempotency_key?: string;
+}
+
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** idempotency_key es opcional (compatibilidad con un frontend viejo); si viene, debe ser un UUID válido. */
+export function parseIdempotencyKey(value: unknown): string | undefined {
+  if (value === undefined || value === null || value === "") return undefined;
+  if (typeof value !== "string" || !UUID_REGEX.test(value)) {
+    throw new PaymentInputError("idempotency_key must be a valid UUID");
+  }
+  return value;
 }
 
 /** expected_total_ars es opcional (un frontend viejo no lo manda); si viene, tiene que ser un número finito >= 0. */
@@ -95,7 +108,8 @@ export function parseCreatePaymentInput(value: unknown): CreatePaymentInput {
       celular: String(customerRecord.celular ?? "").trim()
     },
     shipping: parseShippingInput(record.shipping),
-    expected_total_ars: parseExpectedTotal(record.expected_total_ars)
+    expected_total_ars: parseExpectedTotal(record.expected_total_ars),
+    idempotency_key: parseIdempotencyKey(record.idempotency_key)
   };
 }
 

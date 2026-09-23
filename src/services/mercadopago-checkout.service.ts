@@ -16,7 +16,7 @@ import {
   validateShippingInput,
   MAX_ORDER_ITEMS
 } from "../lib/payment-input.validation";
-import { createOrderRecord } from "./orders.repository";
+import { createOrderRecord, findOrderByIdempotencyKey, DuplicateOrderError } from "./orders.repository";
 import { sendMercadoPagoOrderConfirmationEmail } from "./email/order-confirmation-templates";
 import { assertExpectedTotal, buildOrderQuote, OrderQuote, OrderQuoteError } from "./order-quote.service";
 
@@ -61,30 +61,53 @@ export class PaymentService {
       quote.paymentCommissionPercentage
     );
     assertExpectedTotal(input.expected_total_ars, payment.total);
+
+    if (input.idempotency_key) {
+      // Reintento del mismo intento de pago (doble click, recarga, red): la orden
+      // ya se creó y ya descontó stock. No se crea otra: se reusa esa misma orden
+      // (con el total recalculado a la cotización vigente) para un nuevo link de pago.
+      const existing = await findOrderByIdempotencyKey(this.env, input.idempotency_key);
+      if (existing) return this.reissuePreferenceForExistingOrder(existing, input, quote, payment);
+    }
+
     const externalReference = crypto.randomUUID();
-    const createdOrder = await createOrderRecord(
-      this.env,
-      input.customer,
-      quote.items.map(item => ({
-        variant_id: item.variant_id,
-        product_id: item.product_id,
-        sku: item.sku,
-        product_name: item.product_name,
-        quantity: item.quantity,
-        units_per_pack: item.units_per_pack,
-        units_per_pack_master: item.units_per_pack_master,
-        unit_price: item.price_ars
-      })),
-      quote.subtotalArs,
-      quote.exchangeRate,
-      externalReference,
-      input.shipping,
-      quote.shippingArs,
-      quote.embalajeArs,
-      "mercadopago",
-      payment.paymentDiscountPercentage,
-      payment.paymentDiscountAmount
-    );
+    let createdOrder: { id: string };
+    try {
+      createdOrder = await createOrderRecord(
+        this.env,
+        input.customer,
+        quote.items.map(item => ({
+          variant_id: item.variant_id,
+          product_id: item.product_id,
+          sku: item.sku,
+          product_name: item.product_name,
+          quantity: item.quantity,
+          units_per_pack: item.units_per_pack,
+          units_per_pack_master: item.units_per_pack_master,
+          unit_price: item.price_ars
+        })),
+        quote.subtotalArs,
+        quote.exchangeRate,
+        externalReference,
+        input.shipping,
+        quote.shippingArs,
+        quote.embalajeArs,
+        "mercadopago",
+        payment.paymentDiscountPercentage,
+        payment.paymentDiscountAmount,
+        input.idempotency_key
+      );
+    } catch (error) {
+      if (error instanceof DuplicateOrderError) {
+        return this.reissuePreferenceForExistingOrder(
+          { id: error.orderId, external_reference: error.externalReference },
+          input,
+          quote,
+          payment
+        );
+      }
+      throw error;
+    }
 
     try {
       const preference = await this.mercadoPago.createPreference(
@@ -108,6 +131,47 @@ export class PaymentService {
         .eq("id", createdOrder.id);
       throw error;
     }
+  }
+
+  /**
+   * Reusa una orden pendiente ya creada (mismo idempotency_key) para un nuevo intento
+   * de pago: no crea otra orden ni vuelve a descontar stock. Actualiza el total al de
+   * la cotización vigente (nada se cobró todavía) y genera un link de pago nuevo, para
+   * que la preferencia de Mercado Pago siempre coincida con orders.total_amount (el
+   * webhook rechaza el pago si no coinciden).
+   */
+  private async reissuePreferenceForExistingOrder(
+    existing: { id: string; external_reference: string },
+    input: CreatePaymentInput,
+    quote: OrderQuote,
+    payment: ReturnType<typeof calculateOrderPayment>
+  ): Promise<{ init_point: string }> {
+    const supabase = getSupabase(this.env);
+    const { data: updatedRows, error: updateError } = await supabase
+      .from("orders")
+      .update({
+        subtotal_amount: quote.subtotalArs,
+        shipping_amount: quote.shippingArs,
+        embalaje_amount: quote.embalajeArs,
+        total_amount: payment.total,
+        payment_discount_percentage: payment.paymentDiscountPercentage,
+        payment_discount_amount: payment.paymentDiscountAmount,
+        exchange_rate_used: quote.exchangeRate,
+        updated_at: new Date().toISOString()
+      })
+      .eq("id", existing.id)
+      .eq("status", "pending")
+      .eq("payment_status", "pending")
+      .select("id");
+    if (updateError) throw new Error(`Unable to refresh duplicate order: ${updateError.message}`);
+    if (!updatedRows?.length) {
+      throw new OrderQuoteError("This order already has a payment in progress");
+    }
+
+    const preference = await this.mercadoPago.createPreference(
+      this.buildPreference(input, quote, existing.external_reference, existing.id)
+    );
+    return { init_point: preference.init_point };
   }
 
   async getPayment(paymentId: string): Promise<MercadoPagoPaymentResponse> {

@@ -83,7 +83,7 @@ describe("resolveShippingBoxPlan", () => {
   it("usa una Caja Chica para 250 milésimos de bulto equivalente", async () => {
     const result = await resolveShippingBoxPlan({} as Env, "CABA_PBA", [{ product_id: "00000000-0000-4000-8000-000000000001", units: 250 }]);
     expect(result).toEqual({
-      boxes: [expect.objectContaining({ boxModelId: "small", count: 1, unitPriceArs: 13000 })],
+      boxes: [expect.objectContaining({ boxModelId: "small", count: 1 })],
       totalPriceArs: 13000
     });
   });

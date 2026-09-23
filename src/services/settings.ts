@@ -65,7 +65,7 @@ async function refreshExchangeRate(env: any): Promise<number> {
   // (que recién ocurre una hora después). Ante cualquier falla se devuelve el
   // último valor guardado, sin escribir nada.
   try {
-    const res = await fetch("https://dolarapi.com/v1/dolares/oficial");
+    const res = await fetch("https://dolarapi.com/v1/dolares/oficial", { signal: AbortSignal.timeout(5000) });
     if (!res.ok) throw new Error(`DolarAPI respondió HTTP ${res.status}`);
     const data: any = await res.json();
     const rate = Number(data?.venta);

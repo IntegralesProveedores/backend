@@ -16,6 +16,16 @@ import { MercadoPagoService } from "./mercadopago.service";
 /** La preferencia de MP vence a las 24 h (buildPreference); se deja 1 h de margen. */
 const MERCADOPAGO_HOLD_HOURS = 25;
 const MAX_ORDERS_PER_RUN = 50;
+/** Cuántas órdenes se procesan a la vez: en paralelo total (50) se arriesga el límite de
+ *  subsolicitudes de una invocación del Worker; en lotes acotados se reparte esa carga. */
+const BATCH_CONCURRENCY = 8;
+
+/** Procesa `items` en lotes de a `size`, en paralelo dentro de cada lote. */
+async function inBatches<T>(items: T[], size: number, fn: (item: T) => Promise<void>): Promise<void> {
+  for (let i = 0; i < items.length; i += size) {
+    await Promise.all(items.slice(i, i + size).map(fn));
+  }
+}
 
 interface PendingOrderRow {
   id: string;
@@ -114,35 +124,36 @@ export async function releaseAbandonedOrders(env: Env): Promise<StockReleaseResu
 
   const mercadoPagoOrders = await findExpiredOrders(env, "mercadopago", MERCADOPAGO_HOLD_HOURS);
   const mercadoPago = mercadoPagoOrders.length ? new MercadoPagoService(env.MP_ACCESS_TOKEN) : null;
-  for (const order of mercadoPagoOrders) {
+  await inBatches(mercadoPagoOrders, BATCH_CONCURRENCY, async order => {
     try {
       if (!order.external_reference || !mercadoPago) {
         result.skipped.push(order.id);
-        continue;
+        return;
       }
       // Si MP tiene un pago aprobado, el webhook se perdió: no se cancela (revisar a mano).
       if (await mercadoPago.hasApprovedPayment(order.external_reference)) {
         console.error(JSON.stringify({ event: "stock_release_skipped_paid_order", order_id: order.id }));
         result.skipped.push(order.id);
-        continue;
+        return;
       }
       if (await cancelAndRestore(env, order.id)) result.released.push(order.id);
     } catch (error) {
       console.error(JSON.stringify({ event: "stock_release_failed", order_id: order.id, message: String(error) }));
       result.skipped.push(order.id);
     }
-  }
+  });
 
   const transferHours = await getTransferHoldHours(env);
   if (transferHours !== null) {
-    for (const order of await findExpiredOrders(env, "transferencia", transferHours)) {
+    const transferOrders = await findExpiredOrders(env, "transferencia", transferHours);
+    await inBatches(transferOrders, BATCH_CONCURRENCY, async order => {
       try {
         if (await cancelAndRestore(env, order.id)) result.released.push(order.id);
       } catch (error) {
         console.error(JSON.stringify({ event: "stock_release_failed", order_id: order.id, message: String(error) }));
         result.skipped.push(order.id);
       }
-    }
+    });
   }
 
   console.log(JSON.stringify({ event: "stock_release_run", released: result.released.length, skipped: result.skipped.length }));

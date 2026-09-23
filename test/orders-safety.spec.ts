@@ -1,8 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { assertExpectedTotal, PriceChangedError } from "../src/services/order-quote.service";
-import { parseExpectedTotal, PaymentInputError } from "../src/lib/payment-input.validation";
+import { parseExpectedTotal, parseIdempotencyKey, PaymentInputError } from "../src/lib/payment-input.validation";
 import { parseIntParam } from "../src/lib/request";
 import { releaseAbandonedOrders } from "../src/services/stock-release.service";
+import { createOrderRecord, findOrderByIdempotencyKey, DuplicateOrderError } from "../src/services/orders.repository";
 import { getSupabase } from "../src/services/db";
 
 vi.mock("../src/services/db", () => ({ getSupabase: vi.fn() }));
@@ -43,6 +44,84 @@ describe("total esperado", () => {
     expect(() => parseExpectedTotal("20262")).toThrow(PaymentInputError);
     expect(() => parseExpectedTotal(-1)).toThrow(PaymentInputError);
     expect(() => parseExpectedTotal(Number.NaN)).toThrow(PaymentInputError);
+  });
+});
+
+describe("idempotency_key", () => {
+  const VALID_KEY = "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11";
+
+  it("parseIdempotencyKey acepta ausente y UUID válido, rechaza el resto", () => {
+    expect(parseIdempotencyKey(undefined)).toBeUndefined();
+    expect(parseIdempotencyKey(null)).toBeUndefined();
+    expect(parseIdempotencyKey("")).toBeUndefined();
+    expect(parseIdempotencyKey(VALID_KEY)).toBe(VALID_KEY);
+    expect(() => parseIdempotencyKey("no-es-un-uuid")).toThrow(PaymentInputError);
+    expect(() => parseIdempotencyKey(12345)).toThrow(PaymentInputError);
+  });
+
+  function mockOrdersTable(options: {
+    existing?: { id: string; external_reference: string } | null;
+    insertError?: { code?: string; message: string } | null;
+  }) {
+    const from = vi.fn((table: string) => {
+      if (table !== "orders") return { insert: vi.fn(() => Promise.resolve({ error: null })) };
+      return {
+        insert: vi.fn(() => ({
+          select: vi.fn(() => ({
+            single: vi.fn(() =>
+              Promise.resolve(
+                options.insertError
+                  ? { data: null, error: options.insertError }
+                  : { data: { id: "new-order-id" }, error: null }
+              )
+            )
+          }))
+        })),
+        select: vi.fn(() => ({
+          eq: vi.fn(() => ({
+            maybeSingle: vi.fn(() => Promise.resolve({ data: options.existing ?? null, error: null }))
+          }))
+        }))
+      };
+    });
+    getSupabaseMock.mockReturnValue({ from } as any);
+  }
+
+  const customer = { nombre: "Ana", email: "ana@test.com", cuit: "", codigoArea: "", celular: "" };
+  const shipping = { method: "pickup" as const };
+
+  it("findOrderByIdempotencyKey devuelve la orden existente", async () => {
+    const existing = { id: "order-1", external_reference: "ref-1" };
+    mockOrdersTable({ existing });
+    await expect(findOrderByIdempotencyKey({} as any, VALID_KEY)).resolves.toEqual(existing);
+  });
+
+  it("findOrderByIdempotencyKey devuelve null si no hay ninguna", async () => {
+    mockOrdersTable({ existing: null });
+    await expect(findOrderByIdempotencyKey({} as any, VALID_KEY)).resolves.toBeNull();
+  });
+
+  it("createOrderRecord: dos requests con la misma key chocan contra la restricción única y no rompe con un 500", async () => {
+    const existing = { id: "order-1", external_reference: "ref-1" };
+    mockOrdersTable({ existing, insertError: { code: "23505", message: "duplicate key value violates unique constraint" } });
+
+    await expect(
+      createOrderRecord({} as any, customer, [], 1000, 1481, "ref-2", shipping, 0, 0, "transferencia", 0, 0, VALID_KEY)
+    ).rejects.toBeInstanceOf(DuplicateOrderError);
+
+    try {
+      await createOrderRecord({} as any, customer, [], 1000, 1481, "ref-2", shipping, 0, 0, "transferencia", 0, 0, VALID_KEY);
+    } catch (error) {
+      expect((error as DuplicateOrderError).orderId).toBe("order-1");
+      expect((error as DuplicateOrderError).externalReference).toBe("ref-1");
+    }
+  });
+
+  it("createOrderRecord: un error de inserción sin idempotency_key no se confunde con un duplicado", async () => {
+    mockOrdersTable({ existing: null, insertError: { message: "conexión perdida" } });
+    await expect(
+      createOrderRecord({} as any, customer, [], 1000, 1481, "ref-3", shipping, 0, 0, "transferencia", 0, 0)
+    ).rejects.toThrow(/Unable to create order/);
   });
 });
 

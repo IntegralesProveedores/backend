@@ -1,7 +1,7 @@
 import { RouteContext } from "../lib/router";
 import { errorResponse, jsonResponse } from "../lib/response";
 import { logEvent, setOrderRef } from "../lib/log";
-import { PaymentService } from "../services/mercadopago-checkout.service";
+import { MercadoPagoWebhookService } from "../services/mercadopago-webhook.service";
 
 function normalizePaymentId(value: unknown): string | null {
   if (typeof value === "string" && value.trim()) return value.trim();
@@ -36,7 +36,7 @@ export async function handleMercadoPagoWebhook({ request, env, url }: RouteConte
   const paymentId = normalizePaymentId(url.searchParams.get("data.id"));
 
   try {
-    const paymentService = new PaymentService(env);
+    const paymentService = new MercadoPagoWebhookService(env);
     if (!paymentId || !requestId) {
       return errorResponse("Missing Mercado Pago webhook identifiers", 400);
     }

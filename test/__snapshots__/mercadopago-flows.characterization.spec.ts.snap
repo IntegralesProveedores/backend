@@ -1,0 +1,52 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`POST /payments/create > crea la orden, la preferencia (pedido exacto a Mercado Pago) y descuenta stock 1`] = `
+{
+  "auto_return": "approved",
+  "back_urls": {
+    "failure": "https://brotalia.com.ar/orden/error",
+    "pending": "https://brotalia.com.ar/orden/pendiente",
+    "success": "https://brotalia.com.ar/orden/exito",
+  },
+  "binary_mode": false,
+  "expiration_date_from": "2026-09-24T15:00:00.000Z",
+  "expiration_date_to": "2026-09-25T15:00:00.000Z",
+  "external_reference": "22222222-2222-4222-8222-222222222222",
+  "items": [
+    {
+      "currency_id": "ARS",
+      "description": "SKU SEM-048",
+      "id": "v1",
+      "quantity": 2,
+      "title": "Semillera",
+      "unit_price": 10000,
+    },
+    {
+      "currency_id": "ARS",
+      "description": "Envío a domicilio",
+      "id": "shipping",
+      "quantity": 1,
+      "title": "Costo de envío",
+      "unit_price": 13402,
+    },
+  ],
+  "metadata": {
+    "external_reference": "22222222-2222-4222-8222-222222222222",
+    "order_id": "order-1",
+  },
+  "notification_url": "https://api.brotalia.com.ar/api/webhooks/mercadopago",
+  "payer": {
+    "email": "ana@example.com",
+    "identification": {
+      "number": "27123456783",
+      "type": "CUIT",
+    },
+    "name": "Ana Gómez",
+    "phone": {
+      "area_code": "11",
+      "number": "44445555",
+    },
+  },
+  "statement_descriptor": "BROTALIA",
+}
+`;

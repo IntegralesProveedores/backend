@@ -1,21 +1,8 @@
-import { logEvent, setOrderRef } from "../lib/log";
-import { getSupabase } from "../services/db";
 import { errorResponse, jsonResponse, priceChangedResponse } from "../lib/response";
-import { calculateOrderPayment } from "../lib/pricing";
-import { createOrderRecord, findOrderByIdempotencyKey, DuplicateOrderError, isSameIdempotentOrder } from "../services/orders.repository";
-import {
-  parseShippingInput,
-  PaymentInputError,
-  validateShippingInput,
-  validateCustomerInput,
-  ShippingInput,
-  MAX_ORDER_ITEMS,
-  isValidEmail,
-  parseExpectedTotal,
-  parseIdempotencyKey
-} from "../lib/payment-input.validation";
-import { assertExpectedTotal, buildOrderQuote, OrderQuoteError, PriceChangedError } from "../services/order-quote.service";
-import { sendTransferOrderConfirmationEmail } from "../services/email/order-confirmation-templates";
+import { findOrderDetail, findOrderStatusByReference, IdempotencyConflictError, OrderItemsLoadError } from "../services/orders.repository";
+import { parseTransferOrderInput, PaymentInputError } from "../lib/payment-input.validation";
+import { OrderQuoteError, PriceChangedError } from "../services/order-quote.service";
+import { createTransferOrder, InsufficientStockError, TransferOrderResult } from "../services/transfer-order.service";
 import { enforceRateLimit } from "../lib/rate-limit";
 import { verifyTurnstile } from "../lib/turnstile";
 import { readJsonBody } from "../lib/request";
@@ -23,35 +10,12 @@ import { abandonMercadoPagoOrder } from "../services/stock-release.service";
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-type OrderItemInput = {
-  variant_id: string;
-  quantity: number;
-};
-
-type OrderCustomerInput = {
-  nombre: string;
-  email: string;
-  cuit: string;
-  codigoArea: string;
-  celular: string;
-};
-
-type OrderBody = {
-  items?: OrderItemInput[];
-  customer?: OrderCustomerInput;
-  shipping?: unknown;
-  payment_method?: string;
-  turnstile_token?: string;
-  expected_total_ars?: unknown;
-  idempotency_key?: unknown;
-};
-
 export async function handleCreateOrder({ request, env }: { request: Request; env: any }) {
   const limited = await enforceRateLimit(env, request, "orders");
   if (limited) return limited;
 
   try {
-    const body = await readJsonBody(request) as OrderBody | null;
+    const body = await readJsonBody(request) as Record<string, unknown> | null;
     if (!body || typeof body !== "object") return errorResponse("Invalid JSON body", 400);
 
     // Este endpoint es solo para transferencia. Mercado Pago pasa por
@@ -60,209 +24,66 @@ export async function handleCreateOrder({ request, env }: { request: Request; en
       return errorResponse("payment_method must be 'transferencia'; use /payments/create for Mercado Pago", 400);
     }
 
-    const captchaFailure = await verifyTurnstile(env, request, body?.turnstile_token);
+    const captchaFailure = await verifyTurnstile(env, request, body.turnstile_token as string | undefined);
     if (captchaFailure) return captchaFailure;
 
-    const items = body?.items;
-    const customer = body?.customer;
-    let shipping: ShippingInput;
-
-    try {
-      shipping = parseShippingInput(body?.shipping);
-      validateShippingInput(shipping);
-    } catch (error) {
-      if (error instanceof PaymentInputError) return errorResponse(error.message, 400);
-      throw error;
+    const result = await createTransferOrder(env, parseTransferOrderInput(body));
+    if (result.kind === "duplicate") {
+      return jsonResponse({ order_ref: result.orderRef, duplicate: true });
     }
-
-    if (!Array.isArray(items) || items.length === 0 || items.length > MAX_ORDER_ITEMS) {
-      return errorResponse(`items must contain between 1 and ${MAX_ORDER_ITEMS} entries`, 400);
+    return jsonResponse(createdOrderResponse(result));
+  } catch (error: any) {
+    if (error instanceof PaymentInputError || error instanceof OrderQuoteError) return errorResponse(error.message, 400);
+    if (error instanceof IdempotencyConflictError) return errorResponse("idempotency_conflict", 409);
+    if (error instanceof PriceChangedError) return priceChangedResponse(error.currentTotalArs, error.expectedTotalArs);
+    if (error instanceof InsufficientStockError) {
+      return errorResponse(error.message, 409, { supabase_error: error.supabaseMessage });
     }
-
-    if (!customer || !isValidEmail(customer.email)) {
-      return errorResponse("customer.email is invalid", 400);
-    }
-    try {
-      validateCustomerInput(customer);
-    } catch (error) {
-      if (error instanceof PaymentInputError) return errorResponse(error.message, 400);
-      throw error;
-    }
-
-    for (const [index, item] of items.entries()) {
-      if (!item || typeof item.variant_id !== "string" || !Number.isInteger(item.quantity) || item.quantity <= 0) {
-        return errorResponse(`Invalid item at index ${index}`, 400);
-      }
-    }
-
-    let idempotencyKey: string | undefined;
-    try {
-      idempotencyKey = parseIdempotencyKey(body.idempotency_key);
-    } catch (error) {
-      if (error instanceof PaymentInputError) return errorResponse(error.message, 400);
-      throw error;
-    }
-
-    if (idempotencyKey) {
-      // Reintento del mismo intento de pago (doble click, recarga, red): la orden
-      // ya se creó, se devuelve su referencia en vez de crear una duplicada.
-      const existing = await findOrderByIdempotencyKey(env, idempotencyKey);
-      if (existing) {
-        setOrderRef(existing.external_reference);
-        // Misma key pero otro pedido (o la orden ya se canceló): no se devuelve la orden vieja
-        // como si fuera ésta. El frontend genera una key nueva y el cliente confirma de nuevo.
-        if (!isSameIdempotentOrder(existing, items)) {
-          logEvent("warn", "idempotency_conflict", { order_ref: existing.external_reference });
-          return errorResponse("idempotency_conflict", 409);
-        }
-        return jsonResponse({ order_ref: existing.external_reference, duplicate: true });
-      }
-    }
-
-    let quote;
-    try {
-      quote = await buildOrderQuote(env, items, shipping);
-    } catch (error) {
-      if (error instanceof OrderQuoteError) return errorResponse(error.message, 400);
-      throw error;
-    }
-
-    const paymentMethod = body.payment_method;
-    // quote.subtotalArs ya incluye el embalaje (repartido en el precio de cada producto).
-    const payment = calculateOrderPayment(quote.subtotalArs, quote.shippingArs, paymentMethod, quote.paymentCommissionPercentage);
-
-    try {
-      assertExpectedTotal(parseExpectedTotal(body.expected_total_ars), payment.total);
-    } catch (error) {
-      if (error instanceof PriceChangedError) return priceChangedResponse(error.currentTotalArs, error.expectedTotalArs);
-      if (error instanceof PaymentInputError) return errorResponse(error.message, 400);
-      throw error;
-    }
-
-    const orderRef = crypto.randomUUID();
-    setOrderRef(orderRef);
-
-    let order: { id: string };
-    try {
-      order = await createOrderRecord(
-        env,
-        customer,
-        quote.items.map(item => ({
-          variant_id: item.variant_id,
-          product_id: item.product_id,
-          sku: item.sku,
-          product_name: item.product_name,
-          quantity: item.quantity,
-          units_per_pack: item.units_per_pack,
-          units_per_pack_master: item.units_per_pack_master,
-          unit_price: item.price_ars
-        })),
-        quote.subtotalArs,
-        quote.exchangeRate,
-        orderRef,
-        shipping,
-        quote.shippingArs,
-        quote.embalajeArs,
-        paymentMethod,
-        payment.paymentDiscountPercentage,
-        payment.paymentDiscountAmount,
-        idempotencyKey
-      );
-    } catch (error) {
-      if (error instanceof DuplicateOrderError) {
-        return jsonResponse({ order_ref: error.externalReference, duplicate: true });
-      }
-      throw error;
-    }
-
-    if (paymentMethod === "transferencia") {
-      // El stock se descuenta al confirmar el pedido (no al acreditarse la
-      // transferencia). decrement_order_stock es atómica e idempotente
-      // (orders.stock_decremented_at); si no alcanza el stock, se revierte
-      // la orden y no se manda el mail.
-      const supabase = getSupabase(env);
-      const { error: stockError } = await supabase.rpc("decrement_order_stock", { p_order_id: order.id });
-      if (stockError) {
-        await supabase.from("orders").delete().eq("id", order.id);
-        return errorResponse("Insufficient stock to complete the order", 409, { supabase_error: stockError.message });
-      }
-
-      logEvent("log", "order_created", { order_id: order.id, payment_method: paymentMethod, total_ars: payment.total });
-
-      const ivaTax = quote.taxes.find(t => t.name.toUpperCase() === "IVA");
-      const vatLabel = ivaTax?.is_computable ? "IVA Incluido" : "IVA no incluido";
-      const volumeDiscountPercentage = quote.subtotalNoDiscountArs <= 0
-        ? 0
-        : Math.max(0, Math.round((1 - quote.subtotalArs / quote.subtotalNoDiscountArs) * 100));
-
-      await sendTransferOrderConfirmationEmail(env, {
-        orderRef,
-        customer,
-        items: quote.items.map(item => ({
-          product_name: item.product_name,
-          sku: item.sku,
-          quantity: item.quantity,
-          units_per_pack: item.units_per_pack,
-          subtotal_ars: item.subtotal_ars,
-          price_ars_no_discount: item.price_ars_no_discount,
-          price_ars_no_tax: item.price_ars_no_tax,
-          image_url: item.image_url
-        })),
-        shipping,
-        shippingAmountArs: quote.shippingArs,
-        packagingBoxes: quote.packagingBoxes,
-        totalArs: payment.total,
-        volumeDiscountPercentage,
-        vatLabel,
-        transferDiscount: {
-          percentage: payment.paymentDiscountPercentage,
-          amountArs: payment.paymentDiscountAmount
-        }
-      });
-    }
-
-    return jsonResponse({
-      items: quote.items.map(item => ({
-        variant_id: item.variant_id,
-        sku: item.sku,
-        product_name: item.product_name,
-        quantity: item.quantity,
-        units_per_pack: item.units_per_pack,
-        stock: item.stock,
-        cost_usd_master: item.cost_usd_master,
-        price_ars: item.price_ars,
-        price_usd: item.price_usd,
-        subtotal_ars: item.subtotal_ars,
-        subtotal_usd: item.subtotal_usd,
-        price_ars_no_discount: item.price_ars_no_discount,
-        product: {
-          id: item.product_id,
-          name: item.product_name,
-          cost_usd: item.cost_usd_master_original,
-          units_per_pack_master: item.units_per_pack_master
-        }
-      })),
-      total_ars: payment.total,
-      shipping_ars: quote.shippingArs,
-      embalaje_ars: quote.embalajeArs,
-      // Total real (productos + envío + comisión) en USD; antes era solo el subtotal de productos.
-      total_usd: Math.round((payment.total / quote.exchangeRate + Number.EPSILON) * 100) / 100,
-      exchange_rate: quote.exchangeRate,
-      order_ref: orderRef,
-      payment_method: paymentMethod,
-      payment_discount_percentage: payment.paymentDiscountPercentage,
-      payment_discount_amount: payment.paymentDiscountAmount,
-      customer: {
-        nombre: customer.nombre,
-        email: customer.email,
-        cuit: customer.cuit,
-        codigoArea: customer.codigoArea,
-        celular: customer.celular
-      }
-    });
-  } catch (e: any) {
-    return errorResponse("Unable to create order", 500, { original_message: e.message, stack: e.stack });
+    return errorResponse("Unable to create order", 500, { original_message: error?.message, stack: error?.stack });
   }
+}
+
+/** Cuerpo de la respuesta de POST /orders cuando se creó la orden (contrato con el frontend). */
+function createdOrderResponse({ orderRef, quote, payment, customer }: Extract<TransferOrderResult, { kind: "created" }>) {
+  return {
+    items: quote.items.map(item => ({
+      variant_id: item.variant_id,
+      sku: item.sku,
+      product_name: item.product_name,
+      quantity: item.quantity,
+      units_per_pack: item.units_per_pack,
+      stock: item.stock,
+      cost_usd_master: item.cost_usd_master,
+      price_ars: item.price_ars,
+      price_usd: item.price_usd,
+      subtotal_ars: item.subtotal_ars,
+      subtotal_usd: item.subtotal_usd,
+      price_ars_no_discount: item.price_ars_no_discount,
+      product: {
+        id: item.product_id,
+        name: item.product_name,
+        cost_usd: item.cost_usd_master_original,
+        units_per_pack_master: item.units_per_pack_master
+      }
+    })),
+    total_ars: payment.total,
+    shipping_ars: quote.shippingArs,
+    embalaje_ars: quote.embalajeArs,
+    // Total real (productos + envío + comisión) en USD; antes era solo el subtotal de productos.
+    total_usd: Math.round((payment.total / quote.exchangeRate + Number.EPSILON) * 100) / 100,
+    exchange_rate: quote.exchangeRate,
+    order_ref: orderRef,
+    payment_method: "transferencia",
+    payment_discount_percentage: payment.paymentDiscountPercentage,
+    payment_discount_amount: payment.paymentDiscountAmount,
+    customer: {
+      nombre: customer.nombre,
+      email: customer.email,
+      cuit: customer.cuit,
+      codigoArea: customer.codigoArea,
+      celular: customer.celular
+    }
+  };
 }
 
 /**
@@ -310,16 +131,15 @@ export async function handleGetOrderPaymentState({ env, params, request }: { env
   const externalReference = params.externalReference;
   if (!UUID_REGEX.test(externalReference)) return errorResponse("Invalid external_reference", 400);
 
-  const { data, error } = await getSupabase(env)
-    .from("orders")
-    .select("status, payment_status")
-    .eq("external_reference", externalReference)
-    .maybeSingle();
+  let order;
+  try {
+    order = await findOrderStatusByReference(env, externalReference);
+  } catch {
+    return errorResponse("Unable to load order status", 500);
+  }
+  if (!order) return errorResponse("Order not found", 404);
 
-  if (error) return errorResponse("Unable to load order status", 500);
-  if (!data) return errorResponse("Order not found", 404);
-
-  return jsonResponse({ payment: toOrderPaymentState(data) });
+  return jsonResponse({ payment: toOrderPaymentState(order) });
 }
 
 /**
@@ -336,32 +156,23 @@ export async function handleGetOrder({ env, params, request }: { env: any; param
 
   const orderId = params.id;
   if (!UUID_REGEX.test(orderId)) return errorResponse("Invalid order id", 400);
-  const supabase = getSupabase(env);
-  const [orderResult, itemsResult] = await Promise.all([
-    supabase
-      .from("orders")
-      .select("status, payment_status, shipping_status, subtotal_amount, shipping_amount, total_amount, payment_discount_percentage, payment_discount_amount, external_reference, created_at")
-      .eq("id", orderId)
-      .single(),
-    supabase.from("order_items").select("*").eq("order_id", orderId)
-  ]);
-
-  if (orderResult.error || !orderResult.data) {
-    return errorResponse("Order not found", 404);
+  let detail;
+  try {
+    detail = await findOrderDetail(env, orderId);
+  } catch (error) {
+    if (error instanceof OrderItemsLoadError) return errorResponse("Unable to load order details", 500);
+    throw error;
   }
-  if (itemsResult.error) {
-    return errorResponse("Unable to load order details", 500);
-  }
+  if (!detail) return errorResponse("Order not found", 404);
 
-  const order = orderResult.data as any;
-
+  const { order, items } = detail;
   return jsonResponse({
     order_ref: order.external_reference,
     status: order.status,
     payment_status: order.payment_status,
     shipping_status: order.shipping_status,
     created_at: order.created_at,
-    items: (itemsResult.data ?? []).map((item: any) => ({
+    items: items.map(item => ({
       id: item.id,
       variant_id: item.product_variant_id,
       quantity: item.quantity,

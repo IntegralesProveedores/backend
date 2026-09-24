@@ -1,0 +1,911 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`mail de Mercado Pago aprobado > orden nueva (embalaje por caja): reconstruye las cajas y manda el mail exacto 1`] = `
+{
+  "body": {
+    "cc": [
+      "integralesproveedores@gmail.com",
+    ],
+    "from": ""Brotalia" <ventas@brotalia.com.ar>",
+    "html": "<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#f4f4f4;padding:24px 0;">
+    <tr><td align="center">
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:640px;width:100%;">
+        <tr><td style="background-color:#fff4dc;border-radius:16px;padding:20px;">
+          <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr><td style="text-align:center;padding-bottom:16px;font-family:Arial,Helvetica,sans-serif;">
+    <img src="https://brotalia.com.ar/assets/images/brotalia-iso-00.png" alt="Brotalia" width="120" style="width:120px;max-width:120px;height:auto;margin-bottom:12px;">
+    <div style="font-family:Impact,'Arial Narrow Bold','Arial Black',sans-serif;font-size:22px;color:#2b3033;letter-spacing:.02em;">DETALLE DEL PEDIDO</div>
+    <div style="font-size:12px;color:#7a8178;margin-top:4px;">Pedido #order-1</div>
+  </td></tr></table>
+          <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="width:100%;background-color:#ffffff;border-radius:12px;">
+    <tr><td style="padding:12px 16px;font-family:Arial,Helvetica,sans-serif;"><span style="font-family:Impact,'Arial Narrow Bold','Arial Black',sans-serif;font-size:15px;color:#2b3033;text-transform:uppercase;letter-spacing:.03em;">Datos personales</span>
+      <div style="height:6px;line-height:6px;font-size:1px;">&nbsp;</div>
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr>
+    <td style="padding:3px 6px 3px 0;font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#7a8178;vertical-align:top;width:40%;">Nombre</td>
+    <td style="padding:3px 0;font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#5c6468;font-weight:normal;text-align:right;">María López</td>
+  </tr><tr>
+    <td style="padding:3px 6px 3px 0;font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#7a8178;vertical-align:top;width:40%;">Email</td>
+    <td style="padding:3px 0;font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#5c6468;font-weight:normal;text-align:right;">maria@example.com</td>
+  </tr><tr>
+    <td style="padding:3px 6px 3px 0;font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#7a8178;vertical-align:top;width:40%;">Teléfono</td>
+    <td style="padding:3px 0;font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#5c6468;font-weight:normal;text-align:right;">351 5551234</td>
+  </tr></table></td></tr>
+  </table><div style="height:10px;line-height:10px;font-size:1px;">&nbsp;</div><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="width:100%;background-color:#ffffff;border-radius:12px;">
+    <tr><td style="padding:12px 16px;font-family:Arial,Helvetica,sans-serif;"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr>
+      <td width="44" style="width:44px;padding:5px 8px 5px 0;vertical-align:middle;"><img src="/a.webp" alt="Semillera" width="36" height="36" style="display:block;width:36px;height:36px;border-radius:4px;object-fit:cover;"></td>
+      <td style="padding:5px 0;vertical-align:middle;">
+        <div style="font-family:Impact,'Arial Narrow Bold','Arial Black',sans-serif;font-size:15px;color:#2e5a36;text-transform:uppercase;line-height:1.1;">Semillera</div>
+        <span style="font-family:Arial,Helvetica,sans-serif;font-size:12px;color:#7a8178;">192 u.</span>
+      </td>
+      <td style="padding:5px 0;vertical-align:middle;text-align:right;font-family:Arial,Helvetica,sans-serif;font-size:16px;font-weight:bold;color:#2b3033;white-space:nowrap;">$ 39.000</td>
+    </tr></table>
+    <div style="height:6px;line-height:6px;font-size:1px;">&nbsp;</div>
+    
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border-top:1px solid #eeeeee;"><tr>
+    <td style="padding:8px 0 2px;vertical-align:top;text-align:left;"><span style="font-family:Impact,'Arial Narrow Bold','Arial Black',sans-serif;font-size:15px;color:#2b3033;text-transform:uppercase;letter-spacing:.03em;">Productos</span></td>
+    <td style="padding:8px 0 2px;vertical-align:top;text-align:right;"><span style="font-family:Impact,'Arial Narrow Bold','Arial Black',sans-serif;font-size:18px;color:#2e5a36;">$ 39.000</span><br><span style="font-family:Arial,Helvetica,sans-serif;font-size:12px;color:#7a8178;">IVA Incluido</span></td>
+  </tr></table></td></tr>
+  </table><div style="height:10px;line-height:10px;font-size:1px;">&nbsp;</div><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="width:100%;background-color:#ffffff;border-radius:12px;">
+    <tr><td style="padding:12px 16px;font-family:Arial,Helvetica,sans-serif;"><span style="font-family:Impact,'Arial Narrow Bold','Arial Black',sans-serif;font-size:15px;color:#2b3033;text-transform:uppercase;letter-spacing:.03em;">Embalaje</span>
+      <div style="height:4px;line-height:4px;font-size:1px;">&nbsp;</div>
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style=""><tr>
+    <td style="padding:2px 0;vertical-align:top;text-align:left;"><span style="font-family:Arial,Helvetica,sans-serif;font-size:13px;font-weight:bold;color:#2b3033;">1 x Caja Grande</span></td>
+    <td style="padding:2px 0;vertical-align:top;text-align:right;"><span style="font-family:Arial,Helvetica,sans-serif;font-size:12px;color:#5c6468;">60 &times; 40 &times; 40 cm.</span></td>
+  </tr></table></td></tr>
+  </table><div style="height:10px;line-height:10px;font-size:1px;">&nbsp;</div><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="width:100%;background-color:#ffffff;border-radius:12px;">
+    <tr><td style="padding:12px 16px;font-family:Arial,Helvetica,sans-serif;"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style=""><tr>
+    <td style="padding:2px 0;vertical-align:top;text-align:left;"><span style="font-family:Impact,'Arial Narrow Bold','Arial Black',sans-serif;font-size:15px;color:#2b3033;text-transform:uppercase;letter-spacing:.03em;">Entrega</span><br><span style="font-family:Arial,Helvetica,sans-serif;font-size:12px;color:#7a8178;">Entre el 28 de septiembre y el 1 de octubre</span></td>
+    <td style="padding:2px 0;vertical-align:top;text-align:right;"><span style="font-family:Impact,'Arial Narrow Bold','Arial Black',sans-serif;font-size:18px;color:#2e5a36;">$ 13.402</span></td>
+  </tr></table>
+    <div style="height:8px;line-height:8px;font-size:1px;">&nbsp;</div>
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr>
+    <td style="padding:3px 6px 3px 0;font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#7a8178;vertical-align:top;width:40%;">Destinatario</td>
+    <td style="padding:3px 0;font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#5c6468;font-weight:normal;text-align:right;">María López</td>
+  </tr><tr>
+    <td style="padding:3px 6px 3px 0;font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#7a8178;vertical-align:top;width:40%;">Dirección</td>
+    <td style="padding:3px 0;font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#5c6468;font-weight:normal;text-align:right;">San Martín 100</td>
+  </tr><tr>
+    <td style="padding:3px 6px 3px 0;font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#7a8178;vertical-align:top;width:40%;">Localidad</td>
+    <td style="padding:3px 0;font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#5c6468;font-weight:normal;text-align:right;">Córdoba (Capital)</td>
+  </tr><tr>
+    <td style="padding:3px 6px 3px 0;font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#7a8178;vertical-align:top;width:40%;">Provincia</td>
+    <td style="padding:3px 0;font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#5c6468;font-weight:normal;text-align:right;">Córdoba</td>
+  </tr><tr>
+    <td style="padding:3px 6px 3px 0;font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#7a8178;vertical-align:top;width:40%;">Código Postal</td>
+    <td style="padding:3px 0;font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#5c6468;font-weight:normal;text-align:right;">5000</td>
+  </tr><tr>
+    <td style="padding:3px 6px 3px 0;font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#7a8178;vertical-align:top;width:40%;">Contacto (WhatsApp)</td>
+    <td style="padding:3px 0;font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#5c6468;font-weight:normal;text-align:right;"><a href="https://wa.me/5493515551234" style="color:#e07b39;text-decoration:none;font-weight:bold;">351 5551234</a></td>
+  </tr></table></td></tr>
+  </table><div style="height:10px;line-height:10px;font-size:1px;">&nbsp;</div><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="width:100%;background-color:#ffffff;border-radius:12px;">
+    <tr><td style="padding:12px 16px;font-family:Arial,Helvetica,sans-serif;"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style=""><tr>
+    <td style="padding:2px 0;vertical-align:top;text-align:left;"><span style="font-family:Impact,'Arial Narrow Bold','Arial Black',sans-serif;font-size:15px;color:#2b3033;text-transform:uppercase;letter-spacing:.03em;">Pago</span><br><span style="font-family:Arial,Helvetica,sans-serif;font-size:12px;color:#7a8178;">Mercado Pago</span></td>
+    <td style="padding:2px 0;vertical-align:top;text-align:right;"></td>
+  </tr></table>
+    <div style="height:8px;line-height:8px;font-size:1px;">&nbsp;</div>
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr>
+    <td style="padding:3px 6px 3px 0;font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#7a8178;vertical-align:top;width:40%;">ID de pago</td>
+    <td style="padding:3px 0;font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#5c6468;font-weight:normal;text-align:right;">987654321</td>
+  </tr><tr>
+    <td style="padding:3px 6px 3px 0;font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#7a8178;vertical-align:top;width:40%;">Estado</td>
+    <td style="padding:3px 0;font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#5c6468;font-weight:normal;text-align:right;">approved</td>
+  </tr><tr>
+    <td style="padding:3px 6px 3px 0;font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#7a8178;vertical-align:top;width:40%;">Fecha de aprobación</td>
+    <td style="padding:3px 0;font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#5c6468;font-weight:normal;text-align:right;">2026-09-24T12:30:00.000-03:00</td>
+  </tr></table></td></tr>
+  </table><div style="height:10px;line-height:10px;font-size:1px;">&nbsp;</div><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="width:100%;background-color:#ffffff;border-radius:12px;">
+    <tr><td style="padding:12px 16px;font-family:Arial,Helvetica,sans-serif;"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style=""><tr>
+    <td style="padding:2px 0;vertical-align:top;text-align:left;"><span style="font-family:Impact,'Arial Narrow Bold','Arial Black',sans-serif;font-size:15px;color:#2b3033;text-transform:uppercase;letter-spacing:.03em;">Total</span></td>
+    <td style="padding:2px 0;vertical-align:top;text-align:right;"><span style="font-family:Impact,'Arial Narrow Bold','Arial Black',sans-serif;font-size:22px;color:#2e5a36;">$ 52.402</span><br><span style="font-family:Arial,Helvetica,sans-serif;font-size:12px;color:#7a8178;">IVA Incluido</span></td>
+  </tr></table></td></tr>
+  </table><div style="height:10px;line-height:10px;font-size:1px;">&nbsp;</div>
+          <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#ffffff;border-radius:12px;">
+    <tr><td style="padding:16px 18px;text-align:center;font-family:Arial,Helvetica,sans-serif;">
+      <div style="color:#e07b39;font-weight:bold;font-size:14px;">¡Gracias por tu compra!</div>
+    </td></tr>
+  </table>
+        </td></tr>
+      </table>
+    </td></tr>
+  </table>",
+    "subject": "Confirmación de tu pedido #order-1 - Brotalia",
+    "text": "DETALLE DEL PEDIDO
+Pedido #order-1
+
+DATOS PERSONALES
+Nombre: María López
+Email: maria@example.com
+Teléfono: 351 5551234
+
+PRODUCTOS
+- Semillera (192 u.): $ 39.000
+Productos: $ 39.000 (IVA Incluido)
+
+EMBALAJE
+- 1 x Caja Grande (60 x 40 x 40 cm)
+
+ENTREGA: $ 13.402 (Entre el 28 de septiembre y el 1 de octubre)
+Destinatario: María López
+Dirección: San Martín 100
+Localidad: Córdoba (Capital)
+Provincia: Córdoba
+Código Postal: 5000
+Contacto (WhatsApp): 351 5551234 (https://wa.me/5493515551234)
+
+PAGO: Mercado Pago
+ID de pago: 987654321
+Estado: approved
+Fecha de aprobación: 2026-09-24T12:30:00.000-03:00
+
+TOTAL: $ 52.402
+IVA Incluido
+
+¡Gracias por tu compra!",
+    "to": [
+      "maria@example.com",
+    ],
+  },
+  "headers": {
+    "Authorization": "Bearer re_test_key",
+    "Content-Type": "application/json",
+  },
+  "method": "POST",
+  "url": "https://api.resend.com/emails",
+}
+`;
+
+exports[`mail de Mercado Pago aprobado > orden vieja (sin embalaje por caja) con comisión: cajas del envío y línea de comisión 1`] = `
+{
+  "body": {
+    "cc": [
+      "integralesproveedores@gmail.com",
+    ],
+    "from": ""Brotalia" <ventas@brotalia.com.ar>",
+    "html": "<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#f4f4f4;padding:24px 0;">
+    <tr><td align="center">
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:640px;width:100%;">
+        <tr><td style="background-color:#fff4dc;border-radius:16px;padding:20px;">
+          <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr><td style="text-align:center;padding-bottom:16px;font-family:Arial,Helvetica,sans-serif;">
+    <img src="https://brotalia.com.ar/assets/images/brotalia-iso-00.png" alt="Brotalia" width="120" style="width:120px;max-width:120px;height:auto;margin-bottom:12px;">
+    <div style="font-family:Impact,'Arial Narrow Bold','Arial Black',sans-serif;font-size:22px;color:#2b3033;letter-spacing:.02em;">DETALLE DEL PEDIDO</div>
+    <div style="font-size:12px;color:#7a8178;margin-top:4px;">Pedido #order-2</div>
+  </td></tr></table>
+          <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="width:100%;background-color:#ffffff;border-radius:12px;">
+    <tr><td style="padding:12px 16px;font-family:Arial,Helvetica,sans-serif;"><span style="font-family:Impact,'Arial Narrow Bold','Arial Black',sans-serif;font-size:15px;color:#2b3033;text-transform:uppercase;letter-spacing:.03em;">Datos personales</span>
+      <div style="height:6px;line-height:6px;font-size:1px;">&nbsp;</div>
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr>
+    <td style="padding:3px 6px 3px 0;font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#7a8178;vertical-align:top;width:40%;">Nombre</td>
+    <td style="padding:3px 0;font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#5c6468;font-weight:normal;text-align:right;">María López</td>
+  </tr><tr>
+    <td style="padding:3px 6px 3px 0;font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#7a8178;vertical-align:top;width:40%;">Email</td>
+    <td style="padding:3px 0;font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#5c6468;font-weight:normal;text-align:right;">maria@example.com</td>
+  </tr><tr>
+    <td style="padding:3px 6px 3px 0;font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#7a8178;vertical-align:top;width:40%;">Teléfono</td>
+    <td style="padding:3px 0;font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#5c6468;font-weight:normal;text-align:right;">351 5551234</td>
+  </tr></table></td></tr>
+  </table><div style="height:10px;line-height:10px;font-size:1px;">&nbsp;</div><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="width:100%;background-color:#ffffff;border-radius:12px;">
+    <tr><td style="padding:12px 16px;font-family:Arial,Helvetica,sans-serif;"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr>
+      <td width="44" style="width:44px;padding:5px 8px 5px 0;vertical-align:middle;"><img src="/a.webp" alt="Semillera" width="36" height="36" style="display:block;width:36px;height:36px;border-radius:4px;object-fit:cover;"></td>
+      <td style="padding:5px 0;vertical-align:middle;">
+        <div style="font-family:Impact,'Arial Narrow Bold','Arial Black',sans-serif;font-size:15px;color:#2e5a36;text-transform:uppercase;line-height:1.1;">Semillera</div>
+        <span style="font-family:Arial,Helvetica,sans-serif;font-size:12px;color:#7a8178;">192 u.</span>
+      </td>
+      <td style="padding:5px 0;vertical-align:middle;text-align:right;font-family:Arial,Helvetica,sans-serif;font-size:16px;font-weight:bold;color:#2b3033;white-space:nowrap;">$ 39.000</td>
+    </tr></table>
+    <div style="height:6px;line-height:6px;font-size:1px;">&nbsp;</div>
+    
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border-top:1px solid #eeeeee;"><tr>
+    <td style="padding:8px 0 2px;vertical-align:top;text-align:left;"><span style="font-family:Impact,'Arial Narrow Bold','Arial Black',sans-serif;font-size:15px;color:#2b3033;text-transform:uppercase;letter-spacing:.03em;">Productos</span></td>
+    <td style="padding:8px 0 2px;vertical-align:top;text-align:right;"><span style="font-family:Impact,'Arial Narrow Bold','Arial Black',sans-serif;font-size:18px;color:#2e5a36;">$ 39.000</span><br><span style="font-family:Arial,Helvetica,sans-serif;font-size:12px;color:#7a8178;">IVA Incluido</span></td>
+  </tr></table></td></tr>
+  </table><div style="height:10px;line-height:10px;font-size:1px;">&nbsp;</div><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="width:100%;background-color:#ffffff;border-radius:12px;">
+    <tr><td style="padding:12px 16px;font-family:Arial,Helvetica,sans-serif;"><span style="font-family:Impact,'Arial Narrow Bold','Arial Black',sans-serif;font-size:15px;color:#2b3033;text-transform:uppercase;letter-spacing:.03em;">Embalaje</span>
+      <div style="height:4px;line-height:4px;font-size:1px;">&nbsp;</div>
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style=""><tr>
+    <td style="padding:2px 0;vertical-align:top;text-align:left;"><span style="font-family:Arial,Helvetica,sans-serif;font-size:13px;font-weight:bold;color:#2b3033;">1 x Caja Chica</span></td>
+    <td style="padding:2px 0;vertical-align:top;text-align:right;"><span style="font-family:Arial,Helvetica,sans-serif;font-size:12px;color:#5c6468;">40 &times; 30 &times; 20 cm.</span></td>
+  </tr></table></td></tr>
+  </table><div style="height:10px;line-height:10px;font-size:1px;">&nbsp;</div><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="width:100%;background-color:#ffffff;border-radius:12px;">
+    <tr><td style="padding:12px 16px;font-family:Arial,Helvetica,sans-serif;"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style=""><tr>
+    <td style="padding:2px 0;vertical-align:top;text-align:left;"><span style="font-family:Impact,'Arial Narrow Bold','Arial Black',sans-serif;font-size:15px;color:#2b3033;text-transform:uppercase;letter-spacing:.03em;">Entrega</span><br><span style="font-family:Arial,Helvetica,sans-serif;font-size:12px;color:#7a8178;">Entre el 28 de septiembre y el 1 de octubre</span></td>
+    <td style="padding:2px 0;vertical-align:top;text-align:right;"><span style="font-family:Impact,'Arial Narrow Bold','Arial Black',sans-serif;font-size:18px;color:#2e5a36;">$ 13.402</span></td>
+  </tr></table>
+    <div style="height:8px;line-height:8px;font-size:1px;">&nbsp;</div>
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr>
+    <td style="padding:3px 6px 3px 0;font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#7a8178;vertical-align:top;width:40%;">Destinatario</td>
+    <td style="padding:3px 0;font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#5c6468;font-weight:normal;text-align:right;">María López</td>
+  </tr><tr>
+    <td style="padding:3px 6px 3px 0;font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#7a8178;vertical-align:top;width:40%;">Dirección</td>
+    <td style="padding:3px 0;font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#5c6468;font-weight:normal;text-align:right;">San Martín 100</td>
+  </tr><tr>
+    <td style="padding:3px 6px 3px 0;font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#7a8178;vertical-align:top;width:40%;">Localidad</td>
+    <td style="padding:3px 0;font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#5c6468;font-weight:normal;text-align:right;">Córdoba (Capital)</td>
+  </tr><tr>
+    <td style="padding:3px 6px 3px 0;font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#7a8178;vertical-align:top;width:40%;">Provincia</td>
+    <td style="padding:3px 0;font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#5c6468;font-weight:normal;text-align:right;">Córdoba</td>
+  </tr><tr>
+    <td style="padding:3px 6px 3px 0;font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#7a8178;vertical-align:top;width:40%;">Código Postal</td>
+    <td style="padding:3px 0;font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#5c6468;font-weight:normal;text-align:right;">5000</td>
+  </tr><tr>
+    <td style="padding:3px 6px 3px 0;font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#7a8178;vertical-align:top;width:40%;">Contacto (WhatsApp)</td>
+    <td style="padding:3px 0;font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#5c6468;font-weight:normal;text-align:right;"><a href="https://wa.me/5493515551234" style="color:#e07b39;text-decoration:none;font-weight:bold;">351 5551234</a></td>
+  </tr></table></td></tr>
+  </table><div style="height:10px;line-height:10px;font-size:1px;">&nbsp;</div><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="width:100%;background-color:#ffffff;border-radius:12px;">
+    <tr><td style="padding:12px 16px;font-family:Arial,Helvetica,sans-serif;"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style=""><tr>
+    <td style="padding:2px 0;vertical-align:top;text-align:left;"><span style="font-family:Impact,'Arial Narrow Bold','Arial Black',sans-serif;font-size:15px;color:#2b3033;text-transform:uppercase;letter-spacing:.03em;">Pago</span><br><span style="font-family:Arial,Helvetica,sans-serif;font-size:12px;color:#7a8178;">Mercado Pago</span></td>
+    <td style="padding:2px 0;vertical-align:top;text-align:right;"></td>
+  </tr></table>
+    <div style="height:8px;line-height:8px;font-size:1px;">&nbsp;</div>
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr>
+    <td style="padding:3px 6px 3px 0;font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#7a8178;vertical-align:top;width:40%;">ID de pago</td>
+    <td style="padding:3px 0;font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#5c6468;font-weight:normal;text-align:right;">987654321</td>
+  </tr><tr>
+    <td style="padding:3px 6px 3px 0;font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#7a8178;vertical-align:top;width:40%;">Estado</td>
+    <td style="padding:3px 0;font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#5c6468;font-weight:normal;text-align:right;">approved</td>
+  </tr><tr>
+    <td style="padding:3px 6px 3px 0;font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#7a8178;vertical-align:top;width:40%;">Fecha de aprobación</td>
+    <td style="padding:3px 0;font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#5c6468;font-weight:normal;text-align:right;">2026-09-24T12:30:00.000-03:00</td>
+  </tr></table></td></tr>
+  </table><div style="height:10px;line-height:10px;font-size:1px;">&nbsp;</div><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="width:100%;background-color:#ffffff;border-radius:12px;">
+    <tr><td style="padding:12px 16px;font-family:Arial,Helvetica,sans-serif;"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style=""><tr>
+    <td style="padding:2px 0;vertical-align:top;text-align:left;"><span style="font-family:Impact,'Arial Narrow Bold','Arial Black',sans-serif;font-size:15px;color:#2b3033;text-transform:uppercase;letter-spacing:.03em;">Comisión Mercado Pago (10%)</span></td>
+    <td style="padding:2px 0;vertical-align:top;text-align:right;"><span style="font-family:Impact,'Arial Narrow Bold','Arial Black',sans-serif;font-size:18px;color:#2e5a36;">$ 5.240</span></td>
+  </tr></table></td></tr>
+  </table><div style="height:10px;line-height:10px;font-size:1px;">&nbsp;</div><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="width:100%;background-color:#ffffff;border-radius:12px;">
+    <tr><td style="padding:12px 16px;font-family:Arial,Helvetica,sans-serif;"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style=""><tr>
+    <td style="padding:2px 0;vertical-align:top;text-align:left;"><span style="font-family:Impact,'Arial Narrow Bold','Arial Black',sans-serif;font-size:15px;color:#2b3033;text-transform:uppercase;letter-spacing:.03em;">Total</span></td>
+    <td style="padding:2px 0;vertical-align:top;text-align:right;"><span style="font-family:Impact,'Arial Narrow Bold','Arial Black',sans-serif;font-size:22px;color:#2e5a36;">$ 57.642</span><br><span style="font-family:Arial,Helvetica,sans-serif;font-size:12px;color:#7a8178;">IVA Incluido</span></td>
+  </tr></table></td></tr>
+  </table><div style="height:10px;line-height:10px;font-size:1px;">&nbsp;</div>
+          <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#ffffff;border-radius:12px;">
+    <tr><td style="padding:16px 18px;text-align:center;font-family:Arial,Helvetica,sans-serif;">
+      <div style="color:#e07b39;font-weight:bold;font-size:14px;">¡Gracias por tu compra!</div>
+    </td></tr>
+  </table>
+        </td></tr>
+      </table>
+    </td></tr>
+  </table>",
+    "subject": "Confirmación de tu pedido #order-2 - Brotalia",
+    "text": "DETALLE DEL PEDIDO
+Pedido #order-2
+
+DATOS PERSONALES
+Nombre: María López
+Email: maria@example.com
+Teléfono: 351 5551234
+
+PRODUCTOS
+- Semillera (192 u.): $ 39.000
+Productos: $ 39.000 (IVA Incluido)
+
+EMBALAJE
+- 1 x Caja Chica (40 x 30 x 20 cm)
+
+ENTREGA: $ 13.402 (Entre el 28 de septiembre y el 1 de octubre)
+Destinatario: María López
+Dirección: San Martín 100
+Localidad: Córdoba (Capital)
+Provincia: Córdoba
+Código Postal: 5000
+Contacto (WhatsApp): 351 5551234 (https://wa.me/5493515551234)
+
+PAGO: Mercado Pago
+ID de pago: 987654321
+Estado: approved
+Fecha de aprobación: 2026-09-24T12:30:00.000-03:00
+
+COMISIÓN MERCADO PAGO (10%): $ 5.240
+
+TOTAL: $ 57.642
+IVA Incluido
+
+¡Gracias por tu compra!",
+    "to": [
+      "maria@example.com",
+    ],
+  },
+  "headers": {
+    "Authorization": "Bearer re_test_key",
+    "Content-Type": "application/json",
+  },
+  "method": "POST",
+  "url": "https://api.resend.com/emails",
+}
+`;
+
+exports[`mail de Mercado Pago aprobado > si falta la dirección, igual manda el mail (sin envío) 1`] = `
+{
+  "body": {
+    "cc": [
+      "integralesproveedores@gmail.com",
+    ],
+    "from": ""Brotalia" <ventas@brotalia.com.ar>",
+    "html": "<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#f4f4f4;padding:24px 0;">
+    <tr><td align="center">
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:640px;width:100%;">
+        <tr><td style="background-color:#fff4dc;border-radius:16px;padding:20px;">
+          <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr><td style="text-align:center;padding-bottom:16px;font-family:Arial,Helvetica,sans-serif;">
+    <img src="https://brotalia.com.ar/assets/images/brotalia-iso-00.png" alt="Brotalia" width="120" style="width:120px;max-width:120px;height:auto;margin-bottom:12px;">
+    <div style="font-family:Impact,'Arial Narrow Bold','Arial Black',sans-serif;font-size:22px;color:#2b3033;letter-spacing:.02em;">DETALLE DEL PEDIDO</div>
+    <div style="font-size:12px;color:#7a8178;margin-top:4px;">Pedido #order-3</div>
+  </td></tr></table>
+          <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="width:100%;background-color:#ffffff;border-radius:12px;">
+    <tr><td style="padding:12px 16px;font-family:Arial,Helvetica,sans-serif;"><span style="font-family:Impact,'Arial Narrow Bold','Arial Black',sans-serif;font-size:15px;color:#2b3033;text-transform:uppercase;letter-spacing:.03em;">Datos personales</span>
+      <div style="height:6px;line-height:6px;font-size:1px;">&nbsp;</div>
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr>
+    <td style="padding:3px 6px 3px 0;font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#7a8178;vertical-align:top;width:40%;">Nombre</td>
+    <td style="padding:3px 0;font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#5c6468;font-weight:normal;text-align:right;">María López</td>
+  </tr><tr>
+    <td style="padding:3px 6px 3px 0;font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#7a8178;vertical-align:top;width:40%;">Email</td>
+    <td style="padding:3px 0;font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#5c6468;font-weight:normal;text-align:right;">maria@example.com</td>
+  </tr><tr>
+    <td style="padding:3px 6px 3px 0;font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#7a8178;vertical-align:top;width:40%;">Teléfono</td>
+    <td style="padding:3px 0;font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#5c6468;font-weight:normal;text-align:right;">351 5551234</td>
+  </tr></table></td></tr>
+  </table><div style="height:10px;line-height:10px;font-size:1px;">&nbsp;</div><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="width:100%;background-color:#ffffff;border-radius:12px;">
+    <tr><td style="padding:12px 16px;font-family:Arial,Helvetica,sans-serif;"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr>
+      <td width="44" style="width:44px;padding:5px 8px 5px 0;vertical-align:middle;"><img src="/a.webp" alt="Semillera" width="36" height="36" style="display:block;width:36px;height:36px;border-radius:4px;object-fit:cover;"></td>
+      <td style="padding:5px 0;vertical-align:middle;">
+        <div style="font-family:Impact,'Arial Narrow Bold','Arial Black',sans-serif;font-size:15px;color:#2e5a36;text-transform:uppercase;line-height:1.1;">Semillera</div>
+        <span style="font-family:Arial,Helvetica,sans-serif;font-size:12px;color:#7a8178;">192 u.</span>
+      </td>
+      <td style="padding:5px 0;vertical-align:middle;text-align:right;font-family:Arial,Helvetica,sans-serif;font-size:16px;font-weight:bold;color:#2b3033;white-space:nowrap;">$ 39.000</td>
+    </tr></table>
+    <div style="height:6px;line-height:6px;font-size:1px;">&nbsp;</div>
+    
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border-top:1px solid #eeeeee;"><tr>
+    <td style="padding:8px 0 2px;vertical-align:top;text-align:left;"><span style="font-family:Impact,'Arial Narrow Bold','Arial Black',sans-serif;font-size:15px;color:#2b3033;text-transform:uppercase;letter-spacing:.03em;">Productos</span></td>
+    <td style="padding:8px 0 2px;vertical-align:top;text-align:right;"><span style="font-family:Impact,'Arial Narrow Bold','Arial Black',sans-serif;font-size:18px;color:#2e5a36;">$ 39.000</span><br><span style="font-family:Arial,Helvetica,sans-serif;font-size:12px;color:#7a8178;">IVA Incluido</span></td>
+  </tr></table></td></tr>
+  </table><div style="height:10px;line-height:10px;font-size:1px;">&nbsp;</div><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="width:100%;background-color:#ffffff;border-radius:12px;">
+    <tr><td style="padding:12px 16px;font-family:Arial,Helvetica,sans-serif;"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style=""><tr>
+    <td style="padding:2px 0;vertical-align:top;text-align:left;"><span style="font-family:Impact,'Arial Narrow Bold','Arial Black',sans-serif;font-size:15px;color:#2b3033;text-transform:uppercase;letter-spacing:.03em;">Entrega</span></td>
+    <td style="padding:2px 0;vertical-align:top;text-align:right;"><span style="font-family:Impact,'Arial Narrow Bold','Arial Black',sans-serif;font-size:18px;color:#2e5a36;">Retiro</span></td>
+  </tr></table>
+    <div style="height:8px;line-height:8px;font-size:1px;">&nbsp;</div>
+    <p style="margin:0 0 6px;font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#5c6468;line-height:1.5;">Retiro en <strong>Portela 875, Flores, CABA</strong> o <strong>Roosevelt 1935, Belgrano, CABA</strong>, según disponibilidad. Coordiná día y horario por WhatsApp.</p>
+      <p style="margin:0;font-family:Arial,Helvetica,sans-serif;font-size:13px;"><a href="https://wa.me/5491130226565" style="color:#e07b39;font-weight:bold;text-decoration:none;">Escribinos por WhatsApp: +54 9 11 3022-6565</a></p></td></tr>
+  </table><div style="height:10px;line-height:10px;font-size:1px;">&nbsp;</div><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="width:100%;background-color:#ffffff;border-radius:12px;">
+    <tr><td style="padding:12px 16px;font-family:Arial,Helvetica,sans-serif;"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style=""><tr>
+    <td style="padding:2px 0;vertical-align:top;text-align:left;"><span style="font-family:Impact,'Arial Narrow Bold','Arial Black',sans-serif;font-size:15px;color:#2b3033;text-transform:uppercase;letter-spacing:.03em;">Pago</span><br><span style="font-family:Arial,Helvetica,sans-serif;font-size:12px;color:#7a8178;">Mercado Pago</span></td>
+    <td style="padding:2px 0;vertical-align:top;text-align:right;"></td>
+  </tr></table>
+    <div style="height:8px;line-height:8px;font-size:1px;">&nbsp;</div>
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr>
+    <td style="padding:3px 6px 3px 0;font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#7a8178;vertical-align:top;width:40%;">ID de pago</td>
+    <td style="padding:3px 0;font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#5c6468;font-weight:normal;text-align:right;">987654321</td>
+  </tr><tr>
+    <td style="padding:3px 6px 3px 0;font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#7a8178;vertical-align:top;width:40%;">Estado</td>
+    <td style="padding:3px 0;font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#5c6468;font-weight:normal;text-align:right;">approved</td>
+  </tr><tr>
+    <td style="padding:3px 6px 3px 0;font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#7a8178;vertical-align:top;width:40%;">Fecha de aprobación</td>
+    <td style="padding:3px 0;font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#5c6468;font-weight:normal;text-align:right;">2026-09-24T12:30:00.000-03:00</td>
+  </tr></table></td></tr>
+  </table><div style="height:10px;line-height:10px;font-size:1px;">&nbsp;</div><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="width:100%;background-color:#ffffff;border-radius:12px;">
+    <tr><td style="padding:12px 16px;font-family:Arial,Helvetica,sans-serif;"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style=""><tr>
+    <td style="padding:2px 0;vertical-align:top;text-align:left;"><span style="font-family:Impact,'Arial Narrow Bold','Arial Black',sans-serif;font-size:15px;color:#2b3033;text-transform:uppercase;letter-spacing:.03em;">Total</span></td>
+    <td style="padding:2px 0;vertical-align:top;text-align:right;"><span style="font-family:Impact,'Arial Narrow Bold','Arial Black',sans-serif;font-size:22px;color:#2e5a36;">$ 39.000</span><br><span style="font-family:Arial,Helvetica,sans-serif;font-size:12px;color:#7a8178;">IVA Incluido</span></td>
+  </tr></table></td></tr>
+  </table><div style="height:10px;line-height:10px;font-size:1px;">&nbsp;</div>
+          <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#ffffff;border-radius:12px;">
+    <tr><td style="padding:16px 18px;text-align:center;font-family:Arial,Helvetica,sans-serif;">
+      <div style="color:#e07b39;font-weight:bold;font-size:14px;">¡Gracias por tu compra!</div>
+    </td></tr>
+  </table>
+        </td></tr>
+      </table>
+    </td></tr>
+  </table>",
+    "subject": "Confirmación de tu pedido #order-3 - Brotalia",
+    "text": "DETALLE DEL PEDIDO
+Pedido #order-3
+
+DATOS PERSONALES
+Nombre: María López
+Email: maria@example.com
+Teléfono: 351 5551234
+
+PRODUCTOS
+- Semillera (192 u.): $ 39.000
+Productos: $ 39.000 (IVA Incluido)
+
+ENTREGA: Retiro
+Retiro en Portela 875, Flores, CABA o Roosevelt 1935, Belgrano, CABA (coordinar día y horario).
+WhatsApp: https://wa.me/5491130226565
+
+PAGO: Mercado Pago
+ID de pago: 987654321
+Estado: approved
+Fecha de aprobación: 2026-09-24T12:30:00.000-03:00
+
+TOTAL: $ 39.000
+IVA Incluido
+
+¡Gracias por tu compra!",
+    "to": [
+      "maria@example.com",
+    ],
+  },
+  "headers": {
+    "Authorization": "Bearer re_test_key",
+    "Content-Type": "application/json",
+  },
+  "method": "POST",
+  "url": "https://api.resend.com/emails",
+}
+`;
+
+exports[`mail de transferencia > coordinar, sin cuentas cargadas y sin CUIT 1`] = `
+{
+  "body": {
+    "cc": [
+      "integralesproveedores@gmail.com",
+    ],
+    "from": ""Brotalia" <ventas@brotalia.com.ar>",
+    "html": "<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#f4f4f4;padding:24px 0;">
+    <tr><td align="center">
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:640px;width:100%;">
+        <tr><td style="background-color:#fff4dc;border-radius:16px;padding:20px;">
+          <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr><td style="text-align:center;padding-bottom:16px;font-family:Arial,Helvetica,sans-serif;">
+    <img src="https://brotalia.com.ar/assets/images/brotalia-iso-00.png" alt="Brotalia" width="120" style="width:120px;max-width:120px;height:auto;margin-bottom:12px;">
+    <div style="font-family:Impact,'Arial Narrow Bold','Arial Black',sans-serif;font-size:22px;color:#2b3033;letter-spacing:.02em;">DETALLE DEL PEDIDO</div>
+    <div style="font-size:12px;color:#7a8178;margin-top:4px;">Pedido #11111111-1111-4111-8111-111111111111</div>
+  </td></tr></table>
+          <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="width:100%;background-color:#ffffff;border-radius:12px;">
+    <tr><td style="padding:12px 16px;font-family:Arial,Helvetica,sans-serif;"><span style="font-family:Impact,'Arial Narrow Bold','Arial Black',sans-serif;font-size:15px;color:#2b3033;text-transform:uppercase;letter-spacing:.03em;">Datos personales</span>
+      <div style="height:6px;line-height:6px;font-size:1px;">&nbsp;</div>
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr>
+    <td style="padding:3px 6px 3px 0;font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#7a8178;vertical-align:top;width:40%;">Nombre</td>
+    <td style="padding:3px 0;font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#5c6468;font-weight:normal;text-align:right;">Juan &lt;b&gt;Pérez&lt;/b&gt;</td>
+  </tr><tr>
+    <td style="padding:3px 6px 3px 0;font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#7a8178;vertical-align:top;width:40%;">Email</td>
+    <td style="padding:3px 0;font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#5c6468;font-weight:normal;text-align:right;">juan@example.com</td>
+  </tr><tr>
+    <td style="padding:3px 6px 3px 0;font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#7a8178;vertical-align:top;width:40%;">Teléfono</td>
+    <td style="padding:3px 0;font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#5c6468;font-weight:normal;text-align:right;">11 12345678</td>
+  </tr></table></td></tr>
+  </table><div style="height:10px;line-height:10px;font-size:1px;">&nbsp;</div><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="width:100%;background-color:#ffffff;border-radius:12px;">
+    <tr><td style="padding:12px 16px;font-family:Arial,Helvetica,sans-serif;"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr>
+      <td width="44" style="width:44px;padding:5px 8px 5px 0;vertical-align:middle;"><img src="https://brotalia.com.ar/assets/images/semillera-thumb.webp" alt="Semillera" width="36" height="36" style="display:block;width:36px;height:36px;border-radius:4px;object-fit:cover;"></td>
+      <td style="padding:5px 0;vertical-align:middle;">
+        <div style="font-family:Impact,'Arial Narrow Bold','Arial Black',sans-serif;font-size:15px;color:#2e5a36;text-transform:uppercase;line-height:1.1;">Semillera</div>
+        <span style="font-family:Arial,Helvetica,sans-serif;font-size:12px;color:#7a8178;">192 u.</span>
+      </td>
+      <td style="padding:5px 0;vertical-align:middle;text-align:right;font-family:Arial,Helvetica,sans-serif;font-size:16px;font-weight:bold;color:#2b3033;white-space:nowrap;">$ 41.000</td>
+    </tr><tr>
+      <td width="44" style="width:44px;padding:5px 8px 5px 0;vertical-align:middle;border-top:1px solid #eeeeee;"></td>
+      <td style="padding:5px 0;vertical-align:middle;border-top:1px solid #eeeeee;">
+        <div style="font-family:Impact,'Arial Narrow Bold','Arial Black',sans-serif;font-size:15px;color:#2e5a36;text-transform:uppercase;line-height:1.1;">Olivo</div>
+        <span style="font-family:Arial,Helvetica,sans-serif;font-size:12px;color:#7a8178;">75 u.</span>
+      </td>
+      <td style="padding:5px 0;vertical-align:middle;text-align:right;font-family:Arial,Helvetica,sans-serif;font-size:16px;font-weight:bold;color:#2b3033;white-space:nowrap;border-top:1px solid #eeeeee;">$ 28.500</td>
+    </tr></table>
+    <div style="height:6px;line-height:6px;font-size:1px;">&nbsp;</div>
+    
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border-top:1px solid #eeeeee;"><tr>
+    <td style="padding:8px 0 2px;vertical-align:top;text-align:left;"><span style="font-family:Impact,'Arial Narrow Bold','Arial Black',sans-serif;font-size:15px;color:#2b3033;text-transform:uppercase;letter-spacing:.03em;">Productos</span></td>
+    <td style="padding:8px 0 2px;vertical-align:top;text-align:right;"><span style="font-family:Impact,'Arial Narrow Bold','Arial Black',sans-serif;font-size:18px;color:#2e5a36;">$ 66.000</span><br><span style="font-family:Arial,Helvetica,sans-serif;font-size:12px;color:#7a8178;">IVA Incluido</span><br><span style="font-family:Arial,Helvetica,sans-serif;font-size:12px;color:#7a8178;">Sin impuestos Nacionales: $ 55.783</span></td>
+  </tr></table></td></tr>
+  </table><div style="height:10px;line-height:10px;font-size:1px;">&nbsp;</div><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="width:100%;background-color:#ffffff;border-radius:12px;">
+    <tr><td style="padding:12px 16px;font-family:Arial,Helvetica,sans-serif;"><span style="font-family:Impact,'Arial Narrow Bold','Arial Black',sans-serif;font-size:15px;color:#2b3033;text-transform:uppercase;letter-spacing:.03em;">Embalaje</span>
+      <div style="height:4px;line-height:4px;font-size:1px;">&nbsp;</div>
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style=""><tr>
+    <td style="padding:2px 0;vertical-align:top;text-align:left;"><span style="font-family:Arial,Helvetica,sans-serif;font-size:13px;font-weight:bold;color:#2b3033;">2 x Caja Chica</span></td>
+    <td style="padding:2px 0;vertical-align:top;text-align:right;"><span style="font-family:Arial,Helvetica,sans-serif;font-size:12px;color:#5c6468;">40 &times; 30 &times; 20 cm.</span></td>
+  </tr></table></td></tr>
+  </table><div style="height:10px;line-height:10px;font-size:1px;">&nbsp;</div><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="width:100%;background-color:#ffffff;border-radius:12px;">
+    <tr><td style="padding:12px 16px;font-family:Arial,Helvetica,sans-serif;"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style=""><tr>
+    <td style="padding:2px 0;vertical-align:top;text-align:left;"><span style="font-family:Impact,'Arial Narrow Bold','Arial Black',sans-serif;font-size:15px;color:#2b3033;text-transform:uppercase;letter-spacing:.03em;">Entrega</span></td>
+    <td style="padding:2px 0;vertical-align:top;text-align:right;"><span style="font-family:Impact,'Arial Narrow Bold','Arial Black',sans-serif;font-size:18px;color:#2e5a36;">Coordinar</span></td>
+  </tr></table>
+    <div style="height:8px;line-height:8px;font-size:1px;">&nbsp;</div>
+    <p style="margin:0 0 6px;font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#5c6468;line-height:1.5;">Coordinamos el método de envío (transporte, micro o expreso), el costo y los tiempos según tu localidad por WhatsApp.</p>
+      <p style="margin:0;font-family:Arial,Helvetica,sans-serif;font-size:13px;"><a href="https://wa.me/5491130226565" style="color:#e07b39;font-weight:bold;text-decoration:none;">Escribinos por WhatsApp: +54 9 11 3022-6565</a></p></td></tr>
+  </table><div style="height:10px;line-height:10px;font-size:1px;">&nbsp;</div><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="width:100%;background-color:#ffffff;border-radius:12px;">
+    <tr><td style="padding:12px 16px;font-family:Arial,Helvetica,sans-serif;"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style=""><tr>
+    <td style="padding:2px 0;vertical-align:top;text-align:left;"><span style="font-family:Impact,'Arial Narrow Bold','Arial Black',sans-serif;font-size:15px;color:#2b3033;text-transform:uppercase;letter-spacing:.03em;">Pago</span><br><span style="font-family:Arial,Helvetica,sans-serif;font-size:12px;color:#7a8178;">Transferencia bancaria</span></td>
+    <td style="padding:2px 0;vertical-align:top;text-align:right;"><span style="font-family:Impact,'Arial Narrow Bold','Arial Black',sans-serif;font-size:18px;color:#2e5a36;">&minus;$ 6.600</span><br><span style="font-family:Arial,Helvetica,sans-serif;font-size:12px;color:#7a8178;">&minus;10%</span></td>
+  </tr></table>
+    <div style="height:8px;line-height:8px;font-size:1px;">&nbsp;</div>
+    
+          <p style="margin:12px 0 0;padding:10px 12px;background-color:#e9f7ef;border-radius:8px;text-align:center;font-family:Arial,Helvetica,sans-serif;font-size:12px;color:#1e7e34;font-weight:bold;">Recibido o acreditado el pago se procesa el pedido. El comprobante podés enviarlo por WhatsApp al +54 9 11 3022-6565.</p></td></tr>
+  </table><div style="height:10px;line-height:10px;font-size:1px;">&nbsp;</div><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="width:100%;background-color:#ffffff;border-radius:12px;">
+    <tr><td style="padding:12px 16px;font-family:Arial,Helvetica,sans-serif;"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style=""><tr>
+    <td style="padding:2px 0;vertical-align:top;text-align:left;"><span style="font-family:Impact,'Arial Narrow Bold','Arial Black',sans-serif;font-size:15px;color:#2b3033;text-transform:uppercase;letter-spacing:.03em;">Total</span></td>
+    <td style="padding:2px 0;vertical-align:top;text-align:right;"><span style="font-family:Impact,'Arial Narrow Bold','Arial Black',sans-serif;font-size:22px;color:#2e5a36;">$ 59.400</span><br><span style="font-family:Arial,Helvetica,sans-serif;font-size:12px;color:#7a8178;">IVA Incluido</span></td>
+  </tr></table></td></tr>
+  </table><div style="height:10px;line-height:10px;font-size:1px;">&nbsp;</div>
+          <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#ffffff;border-radius:12px;">
+    <tr><td style="padding:16px 18px;text-align:center;font-family:Arial,Helvetica,sans-serif;">
+      <div style="color:#e07b39;font-weight:bold;font-size:14px;">¡Gracias por tu compra!</div>
+    </td></tr>
+  </table>
+        </td></tr>
+      </table>
+    </td></tr>
+  </table>",
+    "subject": "Orden de Compra #11111111-1111-4111-8111-111111111111",
+    "text": "DETALLE DEL PEDIDO
+Pedido #11111111-1111-4111-8111-111111111111
+
+DATOS PERSONALES
+Nombre: Juan <b>Pérez</b>
+Email: juan@example.com
+Teléfono: 11 12345678
+
+PRODUCTOS
+- Semillera (192 u.): $ 41.000
+- Olivo (75 u.): $ 28.500
+Productos: $ 66.000 (IVA Incluido)
+Sin impuestos Nacionales: $ 55.783
+
+EMBALAJE
+- 2 x Caja Chica (40 x 30 x 20 cm)
+
+ENTREGA: Coordinar
+Coordinamos el envío (transporte, micro o expreso), costo y tiempos por WhatsApp.
+WhatsApp: https://wa.me/5491130226565
+
+PAGO: Transferencia bancaria (-10%: -$ 6.600)
+
+Recibido o acreditado el pago se procesa el pedido. El comprobante podés enviarlo por WhatsApp al +54 9 11 3022-6565.
+
+TOTAL: $ 59.400
+IVA Incluido
+
+¡Gracias por tu compra!",
+    "to": [
+      "juan@example.com",
+    ],
+  },
+  "headers": {
+    "Authorization": "Bearer re_test_key",
+    "Content-Type": "application/json",
+  },
+  "method": "POST",
+  "url": "https://api.resend.com/emails",
+}
+`;
+
+exports[`mail de transferencia > envío a domicilio con dirección completa 1`] = `
+{
+  "body": {
+    "cc": [
+      "integralesproveedores@gmail.com",
+    ],
+    "from": ""Brotalia" <ventas@brotalia.com.ar>",
+    "html": "<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#f4f4f4;padding:24px 0;">
+    <tr><td align="center">
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:640px;width:100%;">
+        <tr><td style="background-color:#fff4dc;border-radius:16px;padding:20px;">
+          <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr><td style="text-align:center;padding-bottom:16px;font-family:Arial,Helvetica,sans-serif;">
+    <img src="https://brotalia.com.ar/assets/images/brotalia-iso-00.png" alt="Brotalia" width="120" style="width:120px;max-width:120px;height:auto;margin-bottom:12px;">
+    <div style="font-family:Impact,'Arial Narrow Bold','Arial Black',sans-serif;font-size:22px;color:#2b3033;letter-spacing:.02em;">DETALLE DEL PEDIDO</div>
+    <div style="font-size:12px;color:#7a8178;margin-top:4px;">Pedido #11111111-1111-4111-8111-111111111111</div>
+  </td></tr></table>
+          <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="width:100%;background-color:#ffffff;border-radius:12px;">
+    <tr><td style="padding:12px 16px;font-family:Arial,Helvetica,sans-serif;"><span style="font-family:Impact,'Arial Narrow Bold','Arial Black',sans-serif;font-size:15px;color:#2b3033;text-transform:uppercase;letter-spacing:.03em;">Datos personales</span>
+      <div style="height:6px;line-height:6px;font-size:1px;">&nbsp;</div>
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr>
+    <td style="padding:3px 6px 3px 0;font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#7a8178;vertical-align:top;width:40%;">Nombre</td>
+    <td style="padding:3px 0;font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#5c6468;font-weight:normal;text-align:right;">Juan &lt;b&gt;Pérez&lt;/b&gt;</td>
+  </tr><tr>
+    <td style="padding:3px 6px 3px 0;font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#7a8178;vertical-align:top;width:40%;">Email</td>
+    <td style="padding:3px 0;font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#5c6468;font-weight:normal;text-align:right;">juan@example.com</td>
+  </tr><tr>
+    <td style="padding:3px 6px 3px 0;font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#7a8178;vertical-align:top;width:40%;">Teléfono</td>
+    <td style="padding:3px 0;font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#5c6468;font-weight:normal;text-align:right;">11 12345678</td>
+  </tr><tr>
+    <td style="padding:3px 6px 3px 0;font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#7a8178;vertical-align:top;width:40%;">CUIT</td>
+    <td style="padding:3px 0;font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#5c6468;font-weight:normal;text-align:right;">20-12345678-9</td>
+  </tr></table></td></tr>
+  </table><div style="height:10px;line-height:10px;font-size:1px;">&nbsp;</div><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="width:100%;background-color:#ffffff;border-radius:12px;">
+    <tr><td style="padding:12px 16px;font-family:Arial,Helvetica,sans-serif;"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr>
+      <td width="44" style="width:44px;padding:5px 8px 5px 0;vertical-align:middle;"><img src="https://brotalia.com.ar/assets/images/semillera-thumb.webp" alt="Semillera" width="36" height="36" style="display:block;width:36px;height:36px;border-radius:4px;object-fit:cover;"></td>
+      <td style="padding:5px 0;vertical-align:middle;">
+        <div style="font-family:Impact,'Arial Narrow Bold','Arial Black',sans-serif;font-size:15px;color:#2e5a36;text-transform:uppercase;line-height:1.1;">Semillera</div>
+        <span style="font-family:Arial,Helvetica,sans-serif;font-size:12px;color:#7a8178;">192 u.</span>
+      </td>
+      <td style="padding:5px 0;vertical-align:middle;text-align:right;font-family:Arial,Helvetica,sans-serif;font-size:16px;font-weight:bold;color:#2b3033;white-space:nowrap;">$ 41.000</td>
+    </tr><tr>
+      <td width="44" style="width:44px;padding:5px 8px 5px 0;vertical-align:middle;border-top:1px solid #eeeeee;"></td>
+      <td style="padding:5px 0;vertical-align:middle;border-top:1px solid #eeeeee;">
+        <div style="font-family:Impact,'Arial Narrow Bold','Arial Black',sans-serif;font-size:15px;color:#2e5a36;text-transform:uppercase;line-height:1.1;">Olivo</div>
+        <span style="font-family:Arial,Helvetica,sans-serif;font-size:12px;color:#7a8178;">75 u.</span>
+      </td>
+      <td style="padding:5px 0;vertical-align:middle;text-align:right;font-family:Arial,Helvetica,sans-serif;font-size:16px;font-weight:bold;color:#2b3033;white-space:nowrap;border-top:1px solid #eeeeee;">$ 28.500</td>
+    </tr></table>
+    <div style="height:6px;line-height:6px;font-size:1px;">&nbsp;</div>
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style=""><tr>
+    <td style="padding:4px 0;vertical-align:top;text-align:left;"><span style="font-family:Impact,'Arial Narrow Bold','Arial Black',sans-serif;font-size:15px;color:#2b3033;text-transform:uppercase;letter-spacing:.03em;">Subtotal</span></td>
+    <td style="padding:4px 0;vertical-align:top;text-align:right;"><span style="font-family:Impact,'Arial Narrow Bold','Arial Black',sans-serif;font-size:18px;color:#2e5a36;">$ 69.500</span></td>
+  </tr></table>
+       <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style=""><tr>
+    <td style="padding:4px 0;vertical-align:top;text-align:left;"><span style="font-family:Impact,'Arial Narrow Bold','Arial Black',sans-serif;font-size:15px;color:#2b3033;text-transform:uppercase;letter-spacing:.03em;">Descuento</span></td>
+    <td style="padding:4px 0;vertical-align:top;text-align:right;"><span style="font-family:Impact,'Arial Narrow Bold','Arial Black',sans-serif;font-size:18px;color:#2e5a36;">&minus;5%</span></td>
+  </tr></table>
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border-top:1px solid #eeeeee;"><tr>
+    <td style="padding:8px 0 2px;vertical-align:top;text-align:left;"><span style="font-family:Impact,'Arial Narrow Bold','Arial Black',sans-serif;font-size:15px;color:#2b3033;text-transform:uppercase;letter-spacing:.03em;">Productos</span></td>
+    <td style="padding:8px 0 2px;vertical-align:top;text-align:right;"><span style="font-family:Impact,'Arial Narrow Bold','Arial Black',sans-serif;font-size:18px;color:#2e5a36;">$ 66.000</span><br><span style="font-family:Arial,Helvetica,sans-serif;font-size:12px;color:#7a8178;">IVA Incluido</span><br><span style="font-family:Arial,Helvetica,sans-serif;font-size:12px;color:#7a8178;">Sin impuestos Nacionales: $ 55.783</span></td>
+  </tr></table></td></tr>
+  </table><div style="height:10px;line-height:10px;font-size:1px;">&nbsp;</div><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="width:100%;background-color:#ffffff;border-radius:12px;">
+    <tr><td style="padding:12px 16px;font-family:Arial,Helvetica,sans-serif;"><span style="font-family:Impact,'Arial Narrow Bold','Arial Black',sans-serif;font-size:15px;color:#2b3033;text-transform:uppercase;letter-spacing:.03em;">Embalaje</span>
+      <div style="height:4px;line-height:4px;font-size:1px;">&nbsp;</div>
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style=""><tr>
+    <td style="padding:2px 0;vertical-align:top;text-align:left;"><span style="font-family:Arial,Helvetica,sans-serif;font-size:13px;font-weight:bold;color:#2b3033;">2 x Caja Chica</span></td>
+    <td style="padding:2px 0;vertical-align:top;text-align:right;"><span style="font-family:Arial,Helvetica,sans-serif;font-size:12px;color:#5c6468;">40 &times; 30 &times; 20 cm.</span></td>
+  </tr></table></td></tr>
+  </table><div style="height:10px;line-height:10px;font-size:1px;">&nbsp;</div><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="width:100%;background-color:#ffffff;border-radius:12px;">
+    <tr><td style="padding:12px 16px;font-family:Arial,Helvetica,sans-serif;"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style=""><tr>
+    <td style="padding:2px 0;vertical-align:top;text-align:left;"><span style="font-family:Impact,'Arial Narrow Bold','Arial Black',sans-serif;font-size:15px;color:#2b3033;text-transform:uppercase;letter-spacing:.03em;">Entrega</span><br><span style="font-family:Arial,Helvetica,sans-serif;font-size:12px;color:#7a8178;">Entre el 28 de septiembre y el 1 de octubre</span></td>
+    <td style="padding:2px 0;vertical-align:top;text-align:right;"><span style="font-family:Impact,'Arial Narrow Bold','Arial Black',sans-serif;font-size:18px;color:#2e5a36;">$ 13.402</span></td>
+  </tr></table>
+    <div style="height:8px;line-height:8px;font-size:1px;">&nbsp;</div>
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr>
+    <td style="padding:3px 6px 3px 0;font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#7a8178;vertical-align:top;width:40%;">Destinatario</td>
+    <td style="padding:3px 0;font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#5c6468;font-weight:normal;text-align:right;">Juan Pérez</td>
+  </tr><tr>
+    <td style="padding:3px 6px 3px 0;font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#7a8178;vertical-align:top;width:40%;">Dirección</td>
+    <td style="padding:3px 0;font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#5c6468;font-weight:normal;text-align:right;">Av. Rivadavia 14000, Piso 3, Depto B</td>
+  </tr><tr>
+    <td style="padding:3px 6px 3px 0;font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#7a8178;vertical-align:top;width:40%;">Localidad</td>
+    <td style="padding:3px 0;font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#5c6468;font-weight:normal;text-align:right;">Ramos Mejía (La Matanza)</td>
+  </tr><tr>
+    <td style="padding:3px 6px 3px 0;font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#7a8178;vertical-align:top;width:40%;">Provincia</td>
+    <td style="padding:3px 0;font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#5c6468;font-weight:normal;text-align:right;">Buenos Aires</td>
+  </tr><tr>
+    <td style="padding:3px 6px 3px 0;font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#7a8178;vertical-align:top;width:40%;">Código Postal</td>
+    <td style="padding:3px 0;font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#5c6468;font-weight:normal;text-align:right;">1407</td>
+  </tr><tr>
+    <td style="padding:3px 6px 3px 0;font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#7a8178;vertical-align:top;width:40%;">Contacto (WhatsApp)</td>
+    <td style="padding:3px 0;font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#5c6468;font-weight:normal;text-align:right;"><a href="https://wa.me/5491112345678" style="color:#e07b39;text-decoration:none;font-weight:bold;">11 12345678</a></td>
+  </tr></table></td></tr>
+  </table><div style="height:10px;line-height:10px;font-size:1px;">&nbsp;</div><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="width:100%;background-color:#ffffff;border-radius:12px;">
+    <tr><td style="padding:12px 16px;font-family:Arial,Helvetica,sans-serif;"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style=""><tr>
+    <td style="padding:2px 0;vertical-align:top;text-align:left;"><span style="font-family:Impact,'Arial Narrow Bold','Arial Black',sans-serif;font-size:15px;color:#2b3033;text-transform:uppercase;letter-spacing:.03em;">Pago</span><br><span style="font-family:Arial,Helvetica,sans-serif;font-size:12px;color:#7a8178;">Transferencia bancaria</span></td>
+    <td style="padding:2px 0;vertical-align:top;text-align:right;"><span style="font-family:Impact,'Arial Narrow Bold','Arial Black',sans-serif;font-size:18px;color:#2e5a36;">&minus;$ 6.600</span><br><span style="font-family:Arial,Helvetica,sans-serif;font-size:12px;color:#7a8178;">&minus;10%</span></td>
+  </tr></table>
+    <div style="height:8px;line-height:8px;font-size:1px;">&nbsp;</div>
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr>
+    <td style="padding:3px 6px 3px 0;font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#7a8178;vertical-align:top;width:40%;">Alias</td>
+    <td style="padding:3px 0;font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#5c6468;font-weight:normal;text-align:right;">brotalia.mp</td>
+  </tr><tr>
+    <td style="padding:3px 6px 3px 0;font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#7a8178;vertical-align:top;width:40%;">CVU</td>
+    <td style="padding:3px 0;font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#5c6468;font-weight:normal;text-align:right;">0000003100000000000001</td>
+  </tr><tr>
+    <td style="padding:3px 6px 3px 0;font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#7a8178;vertical-align:top;width:40%;">Titular</td>
+    <td style="padding:3px 0;font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#5c6468;font-weight:normal;text-align:right;">Brotalia &lt;SRL&gt;</td>
+  </tr><tr>
+    <td style="padding:3px 6px 3px 0;font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#7a8178;vertical-align:top;width:40%;">CUIT</td>
+    <td style="padding:3px 0;font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#5c6468;font-weight:normal;text-align:right;">30-12345678-9</td>
+  </tr></table>
+          <p style="margin:12px 0 0;padding:10px 12px;background-color:#e9f7ef;border-radius:8px;text-align:center;font-family:Arial,Helvetica,sans-serif;font-size:12px;color:#1e7e34;font-weight:bold;">Recibido o acreditado el pago se procesa el pedido. El comprobante podés enviarlo por WhatsApp al +54 9 11 3022-6565.</p></td></tr>
+  </table><div style="height:10px;line-height:10px;font-size:1px;">&nbsp;</div><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="width:100%;background-color:#ffffff;border-radius:12px;">
+    <tr><td style="padding:12px 16px;font-family:Arial,Helvetica,sans-serif;"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style=""><tr>
+    <td style="padding:2px 0;vertical-align:top;text-align:left;"><span style="font-family:Impact,'Arial Narrow Bold','Arial Black',sans-serif;font-size:15px;color:#2b3033;text-transform:uppercase;letter-spacing:.03em;">Total</span></td>
+    <td style="padding:2px 0;vertical-align:top;text-align:right;"><span style="font-family:Impact,'Arial Narrow Bold','Arial Black',sans-serif;font-size:22px;color:#2e5a36;">$ 71.462</span><br><span style="font-family:Arial,Helvetica,sans-serif;font-size:12px;color:#7a8178;">IVA Incluido</span></td>
+  </tr></table></td></tr>
+  </table><div style="height:10px;line-height:10px;font-size:1px;">&nbsp;</div>
+          <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#ffffff;border-radius:12px;">
+    <tr><td style="padding:16px 18px;text-align:center;font-family:Arial,Helvetica,sans-serif;">
+      <div style="color:#e07b39;font-weight:bold;font-size:14px;">¡Gracias por tu compra!</div>
+    </td></tr>
+  </table>
+        </td></tr>
+      </table>
+    </td></tr>
+  </table>",
+    "subject": "Orden de Compra #11111111-1111-4111-8111-111111111111",
+    "text": "DETALLE DEL PEDIDO
+Pedido #11111111-1111-4111-8111-111111111111
+
+DATOS PERSONALES
+Nombre: Juan <b>Pérez</b>
+Email: juan@example.com
+Teléfono: 11 12345678
+CUIT: 20-12345678-9
+
+PRODUCTOS
+- Semillera (192 u.): $ 41.000
+- Olivo (75 u.): $ 28.500
+Subtotal: $ 69.500
+Descuento: -5%
+Productos: $ 66.000 (IVA Incluido)
+Sin impuestos Nacionales: $ 55.783
+
+EMBALAJE
+- 2 x Caja Chica (40 x 30 x 20 cm)
+
+ENTREGA: $ 13.402 (Entre el 28 de septiembre y el 1 de octubre)
+Destinatario: Juan Pérez
+Dirección: Av. Rivadavia 14000, Piso 3, Depto B
+Localidad: Ramos Mejía (La Matanza)
+Provincia: Buenos Aires
+Código Postal: 1407
+Contacto (WhatsApp): 11 12345678 (https://wa.me/5491112345678)
+
+PAGO: Transferencia bancaria (-10%: -$ 6.600)
+Alias: brotalia.mp
+CVU: 0000003100000000000001
+Titular: Brotalia <SRL>
+CUIT: 30-12345678-9
+
+Recibido o acreditado el pago se procesa el pedido. El comprobante podés enviarlo por WhatsApp al +54 9 11 3022-6565.
+
+TOTAL: $ 71.462
+IVA Incluido
+
+¡Gracias por tu compra!",
+    "to": [
+      "juan@example.com",
+    ],
+  },
+  "headers": {
+    "Authorization": "Bearer re_test_key",
+    "Content-Type": "application/json",
+  },
+  "method": "POST",
+  "url": "https://api.resend.com/emails",
+}
+`;
+
+exports[`mail de transferencia > retiro: consulta la cuenta de Mercado Pago y manda el mail exacto 1`] = `
+{
+  "body": {
+    "cc": [
+      "integralesproveedores@gmail.com",
+    ],
+    "from": ""Brotalia" <ventas@brotalia.com.ar>",
+    "html": "<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#f4f4f4;padding:24px 0;">
+    <tr><td align="center">
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:640px;width:100%;">
+        <tr><td style="background-color:#fff4dc;border-radius:16px;padding:20px;">
+          <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr><td style="text-align:center;padding-bottom:16px;font-family:Arial,Helvetica,sans-serif;">
+    <img src="https://brotalia.com.ar/assets/images/brotalia-iso-00.png" alt="Brotalia" width="120" style="width:120px;max-width:120px;height:auto;margin-bottom:12px;">
+    <div style="font-family:Impact,'Arial Narrow Bold','Arial Black',sans-serif;font-size:22px;color:#2b3033;letter-spacing:.02em;">DETALLE DEL PEDIDO</div>
+    <div style="font-size:12px;color:#7a8178;margin-top:4px;">Pedido #11111111-1111-4111-8111-111111111111</div>
+  </td></tr></table>
+          <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="width:100%;background-color:#ffffff;border-radius:12px;">
+    <tr><td style="padding:12px 16px;font-family:Arial,Helvetica,sans-serif;"><span style="font-family:Impact,'Arial Narrow Bold','Arial Black',sans-serif;font-size:15px;color:#2b3033;text-transform:uppercase;letter-spacing:.03em;">Datos personales</span>
+      <div style="height:6px;line-height:6px;font-size:1px;">&nbsp;</div>
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr>
+    <td style="padding:3px 6px 3px 0;font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#7a8178;vertical-align:top;width:40%;">Nombre</td>
+    <td style="padding:3px 0;font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#5c6468;font-weight:normal;text-align:right;">Juan &lt;b&gt;Pérez&lt;/b&gt;</td>
+  </tr><tr>
+    <td style="padding:3px 6px 3px 0;font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#7a8178;vertical-align:top;width:40%;">Email</td>
+    <td style="padding:3px 0;font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#5c6468;font-weight:normal;text-align:right;">juan@example.com</td>
+  </tr><tr>
+    <td style="padding:3px 6px 3px 0;font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#7a8178;vertical-align:top;width:40%;">Teléfono</td>
+    <td style="padding:3px 0;font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#5c6468;font-weight:normal;text-align:right;">11 12345678</td>
+  </tr><tr>
+    <td style="padding:3px 6px 3px 0;font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#7a8178;vertical-align:top;width:40%;">CUIT</td>
+    <td style="padding:3px 0;font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#5c6468;font-weight:normal;text-align:right;">20-12345678-9</td>
+  </tr></table></td></tr>
+  </table><div style="height:10px;line-height:10px;font-size:1px;">&nbsp;</div><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="width:100%;background-color:#ffffff;border-radius:12px;">
+    <tr><td style="padding:12px 16px;font-family:Arial,Helvetica,sans-serif;"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr>
+      <td width="44" style="width:44px;padding:5px 8px 5px 0;vertical-align:middle;"><img src="https://brotalia.com.ar/assets/images/semillera-thumb.webp" alt="Semillera" width="36" height="36" style="display:block;width:36px;height:36px;border-radius:4px;object-fit:cover;"></td>
+      <td style="padding:5px 0;vertical-align:middle;">
+        <div style="font-family:Impact,'Arial Narrow Bold','Arial Black',sans-serif;font-size:15px;color:#2e5a36;text-transform:uppercase;line-height:1.1;">Semillera</div>
+        <span style="font-family:Arial,Helvetica,sans-serif;font-size:12px;color:#7a8178;">192 u.</span>
+      </td>
+      <td style="padding:5px 0;vertical-align:middle;text-align:right;font-family:Arial,Helvetica,sans-serif;font-size:16px;font-weight:bold;color:#2b3033;white-space:nowrap;">$ 41.000</td>
+    </tr><tr>
+      <td width="44" style="width:44px;padding:5px 8px 5px 0;vertical-align:middle;border-top:1px solid #eeeeee;"></td>
+      <td style="padding:5px 0;vertical-align:middle;border-top:1px solid #eeeeee;">
+        <div style="font-family:Impact,'Arial Narrow Bold','Arial Black',sans-serif;font-size:15px;color:#2e5a36;text-transform:uppercase;line-height:1.1;">Olivo</div>
+        <span style="font-family:Arial,Helvetica,sans-serif;font-size:12px;color:#7a8178;">75 u.</span>
+      </td>
+      <td style="padding:5px 0;vertical-align:middle;text-align:right;font-family:Arial,Helvetica,sans-serif;font-size:16px;font-weight:bold;color:#2b3033;white-space:nowrap;border-top:1px solid #eeeeee;">$ 28.500</td>
+    </tr></table>
+    <div style="height:6px;line-height:6px;font-size:1px;">&nbsp;</div>
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style=""><tr>
+    <td style="padding:4px 0;vertical-align:top;text-align:left;"><span style="font-family:Impact,'Arial Narrow Bold','Arial Black',sans-serif;font-size:15px;color:#2b3033;text-transform:uppercase;letter-spacing:.03em;">Subtotal</span></td>
+    <td style="padding:4px 0;vertical-align:top;text-align:right;"><span style="font-family:Impact,'Arial Narrow Bold','Arial Black',sans-serif;font-size:18px;color:#2e5a36;">$ 69.500</span></td>
+  </tr></table>
+       <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style=""><tr>
+    <td style="padding:4px 0;vertical-align:top;text-align:left;"><span style="font-family:Impact,'Arial Narrow Bold','Arial Black',sans-serif;font-size:15px;color:#2b3033;text-transform:uppercase;letter-spacing:.03em;">Descuento</span></td>
+    <td style="padding:4px 0;vertical-align:top;text-align:right;"><span style="font-family:Impact,'Arial Narrow Bold','Arial Black',sans-serif;font-size:18px;color:#2e5a36;">&minus;5%</span></td>
+  </tr></table>
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border-top:1px solid #eeeeee;"><tr>
+    <td style="padding:8px 0 2px;vertical-align:top;text-align:left;"><span style="font-family:Impact,'Arial Narrow Bold','Arial Black',sans-serif;font-size:15px;color:#2b3033;text-transform:uppercase;letter-spacing:.03em;">Productos</span></td>
+    <td style="padding:8px 0 2px;vertical-align:top;text-align:right;"><span style="font-family:Impact,'Arial Narrow Bold','Arial Black',sans-serif;font-size:18px;color:#2e5a36;">$ 66.000</span><br><span style="font-family:Arial,Helvetica,sans-serif;font-size:12px;color:#7a8178;">IVA Incluido</span><br><span style="font-family:Arial,Helvetica,sans-serif;font-size:12px;color:#7a8178;">Sin impuestos Nacionales: $ 55.783</span></td>
+  </tr></table></td></tr>
+  </table><div style="height:10px;line-height:10px;font-size:1px;">&nbsp;</div><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="width:100%;background-color:#ffffff;border-radius:12px;">
+    <tr><td style="padding:12px 16px;font-family:Arial,Helvetica,sans-serif;"><span style="font-family:Impact,'Arial Narrow Bold','Arial Black',sans-serif;font-size:15px;color:#2b3033;text-transform:uppercase;letter-spacing:.03em;">Embalaje</span>
+      <div style="height:4px;line-height:4px;font-size:1px;">&nbsp;</div>
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style=""><tr>
+    <td style="padding:2px 0;vertical-align:top;text-align:left;"><span style="font-family:Arial,Helvetica,sans-serif;font-size:13px;font-weight:bold;color:#2b3033;">2 x Caja Chica</span></td>
+    <td style="padding:2px 0;vertical-align:top;text-align:right;"><span style="font-family:Arial,Helvetica,sans-serif;font-size:12px;color:#5c6468;">40 &times; 30 &times; 20 cm.</span></td>
+  </tr></table></td></tr>
+  </table><div style="height:10px;line-height:10px;font-size:1px;">&nbsp;</div><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="width:100%;background-color:#ffffff;border-radius:12px;">
+    <tr><td style="padding:12px 16px;font-family:Arial,Helvetica,sans-serif;"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style=""><tr>
+    <td style="padding:2px 0;vertical-align:top;text-align:left;"><span style="font-family:Impact,'Arial Narrow Bold','Arial Black',sans-serif;font-size:15px;color:#2b3033;text-transform:uppercase;letter-spacing:.03em;">Entrega</span></td>
+    <td style="padding:2px 0;vertical-align:top;text-align:right;"><span style="font-family:Impact,'Arial Narrow Bold','Arial Black',sans-serif;font-size:18px;color:#2e5a36;">Retiro</span></td>
+  </tr></table>
+    <div style="height:8px;line-height:8px;font-size:1px;">&nbsp;</div>
+    <p style="margin:0 0 6px;font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#5c6468;line-height:1.5;">Retiro en <strong>Portela 875, Flores, CABA</strong> o <strong>Roosevelt 1935, Belgrano, CABA</strong>, según disponibilidad. Coordiná día y horario por WhatsApp.</p>
+      <p style="margin:0;font-family:Arial,Helvetica,sans-serif;font-size:13px;"><a href="https://wa.me/5491130226565" style="color:#e07b39;font-weight:bold;text-decoration:none;">Escribinos por WhatsApp: +54 9 11 3022-6565</a></p></td></tr>
+  </table><div style="height:10px;line-height:10px;font-size:1px;">&nbsp;</div><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="width:100%;background-color:#ffffff;border-radius:12px;">
+    <tr><td style="padding:12px 16px;font-family:Arial,Helvetica,sans-serif;"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style=""><tr>
+    <td style="padding:2px 0;vertical-align:top;text-align:left;"><span style="font-family:Impact,'Arial Narrow Bold','Arial Black',sans-serif;font-size:15px;color:#2b3033;text-transform:uppercase;letter-spacing:.03em;">Pago</span><br><span style="font-family:Arial,Helvetica,sans-serif;font-size:12px;color:#7a8178;">Transferencia bancaria</span></td>
+    <td style="padding:2px 0;vertical-align:top;text-align:right;"><span style="font-family:Impact,'Arial Narrow Bold','Arial Black',sans-serif;font-size:18px;color:#2e5a36;">&minus;$ 6.600</span><br><span style="font-family:Arial,Helvetica,sans-serif;font-size:12px;color:#7a8178;">&minus;10%</span></td>
+  </tr></table>
+    <div style="height:8px;line-height:8px;font-size:1px;">&nbsp;</div>
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr>
+    <td style="padding:3px 6px 3px 0;font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#7a8178;vertical-align:top;width:40%;">Alias</td>
+    <td style="padding:3px 0;font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#5c6468;font-weight:normal;text-align:right;">brotalia.mp</td>
+  </tr><tr>
+    <td style="padding:3px 6px 3px 0;font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#7a8178;vertical-align:top;width:40%;">CVU</td>
+    <td style="padding:3px 0;font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#5c6468;font-weight:normal;text-align:right;">0000003100000000000001</td>
+  </tr><tr>
+    <td style="padding:3px 6px 3px 0;font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#7a8178;vertical-align:top;width:40%;">Titular</td>
+    <td style="padding:3px 0;font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#5c6468;font-weight:normal;text-align:right;">Brotalia &lt;SRL&gt;</td>
+  </tr><tr>
+    <td style="padding:3px 6px 3px 0;font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#7a8178;vertical-align:top;width:40%;">CUIT</td>
+    <td style="padding:3px 0;font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#5c6468;font-weight:normal;text-align:right;">30-12345678-9</td>
+  </tr></table>
+          <p style="margin:12px 0 0;padding:10px 12px;background-color:#e9f7ef;border-radius:8px;text-align:center;font-family:Arial,Helvetica,sans-serif;font-size:12px;color:#1e7e34;font-weight:bold;">Recibido o acreditado el pago se procesa el pedido. El comprobante podés enviarlo por WhatsApp al +54 9 11 3022-6565.</p></td></tr>
+  </table><div style="height:10px;line-height:10px;font-size:1px;">&nbsp;</div><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="width:100%;background-color:#ffffff;border-radius:12px;">
+    <tr><td style="padding:12px 16px;font-family:Arial,Helvetica,sans-serif;"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style=""><tr>
+    <td style="padding:2px 0;vertical-align:top;text-align:left;"><span style="font-family:Impact,'Arial Narrow Bold','Arial Black',sans-serif;font-size:15px;color:#2b3033;text-transform:uppercase;letter-spacing:.03em;">Total</span></td>
+    <td style="padding:2px 0;vertical-align:top;text-align:right;"><span style="font-family:Impact,'Arial Narrow Bold','Arial Black',sans-serif;font-size:22px;color:#2e5a36;">$ 59.400</span><br><span style="font-family:Arial,Helvetica,sans-serif;font-size:12px;color:#7a8178;">IVA Incluido</span></td>
+  </tr></table></td></tr>
+  </table><div style="height:10px;line-height:10px;font-size:1px;">&nbsp;</div>
+          <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#ffffff;border-radius:12px;">
+    <tr><td style="padding:16px 18px;text-align:center;font-family:Arial,Helvetica,sans-serif;">
+      <div style="color:#e07b39;font-weight:bold;font-size:14px;">¡Gracias por tu compra!</div>
+    </td></tr>
+  </table>
+        </td></tr>
+      </table>
+    </td></tr>
+  </table>",
+    "subject": "Orden de Compra #11111111-1111-4111-8111-111111111111",
+    "text": "DETALLE DEL PEDIDO
+Pedido #11111111-1111-4111-8111-111111111111
+
+DATOS PERSONALES
+Nombre: Juan <b>Pérez</b>
+Email: juan@example.com
+Teléfono: 11 12345678
+CUIT: 20-12345678-9
+
+PRODUCTOS
+- Semillera (192 u.): $ 41.000
+- Olivo (75 u.): $ 28.500
+Subtotal: $ 69.500
+Descuento: -5%
+Productos: $ 66.000 (IVA Incluido)
+Sin impuestos Nacionales: $ 55.783
+
+EMBALAJE
+- 2 x Caja Chica (40 x 30 x 20 cm)
+
+ENTREGA: Retiro
+Retiro en Portela 875, Flores, CABA o Roosevelt 1935, Belgrano, CABA (coordinar día y horario).
+WhatsApp: https://wa.me/5491130226565
+
+PAGO: Transferencia bancaria (-10%: -$ 6.600)
+Alias: brotalia.mp
+CVU: 0000003100000000000001
+Titular: Brotalia <SRL>
+CUIT: 30-12345678-9
+
+Recibido o acreditado el pago se procesa el pedido. El comprobante podés enviarlo por WhatsApp al +54 9 11 3022-6565.
+
+TOTAL: $ 59.400
+IVA Incluido
+
+¡Gracias por tu compra!",
+    "to": [
+      "juan@example.com",
+    ],
+  },
+  "headers": {
+    "Authorization": "Bearer re_test_key",
+    "Content-Type": "application/json",
+  },
+  "method": "POST",
+  "url": "https://api.resend.com/emails",
+}
+`;

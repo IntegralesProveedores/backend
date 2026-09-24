@@ -1,16 +1,24 @@
-import { getSupabase } from "../db";
 import { PaymentCustomerInput } from "../../lib/payment-input.validation";
 import { MercadoPagoPaymentResponse } from "../../lib/mercadopago.types";
-import { PackagingBox, resolvePackagingPlan, resolveShippingRate } from "../shipping.service";
+import { PackagingBox } from "../shipping.service";
 import { ShippingInput } from "../../lib/payment-input.validation";
-import { getCachedTaxes } from "../settings";
+import { sendEmail } from "./resend.client";
+import {
+  firstRow,
+  loadMercadoPagoOrderEmailData,
+  loadTransferAccounts,
+  MercadoPagoOrderEmailData,
+  TransferAccountRow
+} from "./order-email.data";
 
 // ─────────────────────────────────────────────────────────────
-// QUÉ HACE: Los dos generadores de mail de confirmación de orden
-//           (transferencia y Mercado Pago) y los helpers de HTML/texto
-//           que comparten.
-// POR QUÉ:  Antes vivían mezclados dentro de payment.service.ts junto
-//           con persistencia de órdenes, envío y checkout de MP.
+// QUÉ HACE: Los dos mails de confirmación de orden (transferencia y Mercado
+//           Pago): el armado del HTML/texto (buildTransferOrderEmail,
+//           buildMercadoPagoOrderEmail y sus helpers, sin consultas ni envíos)
+//           y las funciones send* que cargan los datos (order-email.data.ts),
+//           arman el mail y lo mandan (resend.client.ts).
+// POR QUÉ:  Antes este archivo también consultaba Supabase y hablaba con
+//           Resend; separado, el armado se puede probar sin base ni red.
 // CUIDADO:  El cuerpo del mail replica app-order-summary (frontend):
 //           mismos bloques, mismo orden, mismas jerarquías y mismo
 //           formato de montos. Si cambia el resumen del checkout, hay que
@@ -42,62 +50,6 @@ export interface TransferOrderEmailInput {
   vatLabel: string;
   /** Descuento por pagar con transferencia (los precios de lista ya incluyen el costo de Mercado Pago). */
   transferDiscount: { percentage: number; amountArs: number };
-}
-
-interface OrderConfirmationOrderRow {
-  id: string;
-  total_amount: number | string;
-  subtotal_amount: number | string;
-  shipping_amount: number | string;
-  embalaje_amount: number | string | null;
-  payment_commission_percentage: number | string | null;
-  payment_commission_amount: number | string | null;
-}
-
-interface OrderConfirmationProductImageRow {
-  image_url: string;
-  position: number;
-}
-
-interface OrderConfirmationProductRow {
-  id: string;
-  name: string;
-  product_images: OrderConfirmationProductImageRow[] | null;
-}
-
-interface OrderConfirmationVariantRow {
-  sku: string;
-  units_per_pack: number | null;
-  products: OrderConfirmationProductRow | OrderConfirmationProductRow[] | null;
-}
-
-interface OrderConfirmationItemRow {
-  product_variant_id: string;
-  quantity: number | string;
-  unit_price: number | string;
-  product_variants: OrderConfirmationVariantRow | OrderConfirmationVariantRow[] | null;
-}
-
-interface OrderConfirmationCustomerRow {
-  full_name: string;
-  email: string;
-  tax_id: string | null;
-  phone_area_code: string | null;
-  phone_number: string | null;
-}
-
-/** Fila de order_addresses usada para armar la sección "Envío" del mail de confirmación */
-interface OrderConfirmationAddressRow {
-  shipping_method: "pickup" | "delivery" | "coordinar" | null;
-  recipient_name: string | null;
-  postal_code: string | null;
-  province: string | null;
-  locality: string | null;
-  county: string | null;
-  street: string | null;
-  street_number: string | null;
-  floor: string | null;
-  apartment: string | null;
 }
 
 const escapeHtmlForEmail = (value: unknown): string => String(value ?? "")
@@ -132,9 +84,6 @@ const EMAIL_COLORS = {
   wrapperBg: "#f4f4f4",
   divider: "#eeeeee"
 };
-
-/** Único lugar donde configurar el remitente de los mails de confirmación. */
-const EMAIL_FROM = "\"Brotalia\" <ventas@brotalia.com.ar>";
 
 /**
  * Dos familias en todo el mail, como en el sitio (Oswald para títulos/montos,
@@ -547,32 +496,17 @@ function assembleEmail(env: Env, orderLabel: string, datos: { html: string; text
   return { html, text };
 }
 
-async function sendConfirmationEmail(env: Env, payload: { to: string; subject: string; html: string; text: string }): Promise<void> {
-  const response = await fetch("https://api.resend.com/emails", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${env.RESEND_API_KEY}`,
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify({
-      from: EMAIL_FROM,
-      to: [payload.to],
-      cc: ["integralesproveedores@gmail.com"],
-      subject: payload.subject,
-      html: payload.html,
-      text: payload.text
-    })
-  });
-
-  if (!response.ok) {
-    throw new Error(`Resend request failed with status ${response.status}: ${await response.text()}`);
-  }
+/** Mail listo para enviar (asunto, HTML y texto plano). */
+export interface ConfirmationEmail {
+  subject: string;
+  html: string;
+  text: string;
 }
 
 /**
  * Mail de confirmación para pedidos con method de pago "transferencia",
- * disparado desde handleCreateOrder (routes/orders.ts) justo después de
- * crear la orden. Antes salía desde el frontend (checkout.component.ts) vía
+ * disparado desde createTransferOrder (services/transfer-order.service.ts) justo
+ * después de crear la orden. Antes salía desde el frontend (checkout.component.ts) vía
  * emailjs.send() con la public key de EmailJS expuesta en el browser; se
  * movió al backend porque Resend no tiene un equivalente de "public key"
  * seguro para el cliente (la API key es un secreto completo).
@@ -582,122 +516,104 @@ async function sendConfirmationEmail(env: Env, payload: { to: string; subject: s
  */
 export async function sendTransferOrderConfirmationEmail(env: Env, input: TransferOrderEmailInput): Promise<void> {
   try {
-    const supabase = getSupabase(env);
-    const { data: transferAccountsData, error: transferAccountsError } = await supabase
-      .from("payment_transfer_info")
-      .select("bank_name, alias, cvu, cbu, account_number, account_holder_name, account_holder_tax_id, position")
-      .eq("active", true)
-      // El checkout (checkout.component.ts) solo muestra la cuenta de Mercado
-      // Pago aunque payment_transfer_info tenga más filas activas (ej. Banco
-      // Nación); el mail tiene que reflejar lo mismo que ve el cliente en
-      // pantalla al elegir "transferencia".
-      .eq("bank_name", "Mercado Pago")
-      .order("position", { ascending: true });
-    if (transferAccountsError) {
-      console.error("Unable to load payment_transfer_info for confirmation email:", transferAccountsError.message);
-    }
-    const transferAccounts = (transferAccountsData ?? []) as unknown as Array<{
-      bank_name: string;
-      alias: string;
-      cvu: string | null;
-      cbu: string | null;
-      account_number: string | null;
-      account_holder_name: string;
-      account_holder_tax_id: string;
-    }>;
-
-    const phone = formatCustomerPhone(input.customer.codigoArea, input.customer.celular);
-    const datos = buildDatosPersonales({
-      nombre: input.customer.nombre,
-      email: input.customer.email,
-      phone,
-      cuit: input.customer.cuit
-    });
-
-    // Productos agrupados por nombre; cada línea muestra el subtotal a precio de lista, como el resumen.
-    const groups = new Map<string, SummaryItem>();
-    for (const item of input.items) {
-      const units = (item.units_per_pack || 1) * item.quantity;
-      const listSubtotal = item.price_ars_no_discount * item.quantity;
-      const existing = groups.get(item.product_name);
-      if (existing) {
-        existing.totalUnits += units;
-        existing.subtotalArs += listSubtotal;
-      } else {
-        groups.set(item.product_name, { name: item.product_name, totalUnits: units, subtotalArs: listSubtotal, imageUrl: item.image_url });
-      }
-    }
-
-    const productsTotalArs = input.items.reduce((sum, item) => sum + item.subtotal_ars, 0);
-    const subtotalNoDiscountArs = input.items.reduce((sum, item) => sum + item.price_ars_no_discount * item.quantity, 0);
-    const subtotalNoTaxArs = input.items.reduce((sum, item) => sum + item.price_ars_no_tax * item.quantity, 0);
-
-    // Datos para copiar a mano: misma tipografía que el resto del mail.
-    const cuentaHtml = transferAccounts.map(c => emailFieldsTableHtml([
-      emailFieldRowHtml("Alias", escapeHtmlForEmail(c.alias)),
-      ...(c.cvu ? [emailFieldRowHtml("CVU", escapeHtmlForEmail(c.cvu))] : []),
-      ...(c.cbu ? [emailFieldRowHtml("CBU", escapeHtmlForEmail(c.cbu))] : []),
-      emailFieldRowHtml("Titular", escapeHtmlForEmail(c.account_holder_name)),
-      emailFieldRowHtml("CUIT", escapeHtmlForEmail(c.account_holder_tax_id)),
-      ...(c.account_number ? [emailFieldRowHtml("Cuenta", escapeHtmlForEmail(c.account_number))] : [])
-    ].join(""))).join("");
-    const avisoPago = "Recibido o acreditado el pago se procesa el pedido. El comprobante podés enviarlo por WhatsApp al +54 9 11 3022-6565.";
-
-    const summary = buildSummaryBlocks(env, {
-      items: Array.from(groups.values()),
-      subtotalNoDiscountArs,
-      volumeDiscountPercentage: input.volumeDiscountPercentage,
-      productsTotalArs,
-      subtotalNoTaxArs,
-      vatLabel: input.vatLabel,
-      packagingBoxes: input.packagingBoxes,
-      entrega: {
-        method: input.shipping.method,
-        address: input.shipping.address ?? null,
-        shippingAmountArs: input.shippingAmountArs,
-        customerPhone: phone,
-        customerWaUrl: buildCustomerWhatsAppUrl(input.customer.codigoArea, input.customer.celular)
-      },
-      pago: {
-        methodLabel: "Transferencia bancaria",
-        transferDiscountPercentage: input.transferDiscount.percentage,
-        transferDiscountAmountArs: input.transferDiscount.amountArs,
-        detailsHtml: `${cuentaHtml}
-          <p style="margin:12px 0 0;padding:10px 12px;background-color:#e9f7ef;border-radius:8px;text-align:center;font-family:${FONT_BODY};font-size:12px;color:#1e7e34;font-weight:bold;">${avisoPago}</p>`,
-        detailsText: [
-          ...transferAccounts.flatMap(c => [
-            `Alias: ${c.alias}`,
-            ...(c.cvu ? [`CVU: ${c.cvu}`] : []),
-            ...(c.cbu ? [`CBU: ${c.cbu}`] : []),
-            `Titular: ${c.account_holder_name}`,
-            `CUIT: ${c.account_holder_tax_id}`,
-            ...(c.account_number ? [`Cuenta: ${c.account_number}`] : [])
-          ]),
-          "",
-          avisoPago
-        ]
-      },
-      commission: null,
-      totalArs: input.totalArs
-    });
-
-    const email = assembleEmail(env, `Pedido #${input.orderRef}`, datos, summary);
-    await sendConfirmationEmail(env, {
-      to: input.customer.email,
-      subject: `Orden de Compra #${input.orderRef}`,
-      html: email.html,
-      text: email.text
-    });
+    const transferAccounts = await loadTransferAccounts(env);
+    const email = buildTransferOrderEmail(env, input, transferAccounts);
+    await sendEmail(env, { to: input.customer.email, ...email });
   } catch (error) {
     console.error("Unable to send transfer order confirmation email", error);
   }
 }
 
+/** Arma el mail de un pedido por transferencia (función pura: no consulta ni envía nada). */
+export function buildTransferOrderEmail(
+  env: Env,
+  input: TransferOrderEmailInput,
+  transferAccounts: TransferAccountRow[]
+): ConfirmationEmail {
+  const phone = formatCustomerPhone(input.customer.codigoArea, input.customer.celular);
+  const datos = buildDatosPersonales({
+    nombre: input.customer.nombre,
+    email: input.customer.email,
+    phone,
+    cuit: input.customer.cuit
+  });
+
+  // Productos agrupados por nombre; cada línea muestra el subtotal a precio de lista, como el resumen.
+  const groups = new Map<string, SummaryItem>();
+  for (const item of input.items) {
+    const units = (item.units_per_pack || 1) * item.quantity;
+    const listSubtotal = item.price_ars_no_discount * item.quantity;
+    const existing = groups.get(item.product_name);
+    if (existing) {
+      existing.totalUnits += units;
+      existing.subtotalArs += listSubtotal;
+    } else {
+      groups.set(item.product_name, { name: item.product_name, totalUnits: units, subtotalArs: listSubtotal, imageUrl: item.image_url });
+    }
+  }
+
+  const productsTotalArs = input.items.reduce((sum, item) => sum + item.subtotal_ars, 0);
+  const subtotalNoDiscountArs = input.items.reduce((sum, item) => sum + item.price_ars_no_discount * item.quantity, 0);
+  const subtotalNoTaxArs = input.items.reduce((sum, item) => sum + item.price_ars_no_tax * item.quantity, 0);
+
+  // Datos para copiar a mano: misma tipografía que el resto del mail.
+  const cuentaHtml = transferAccounts.map(c => emailFieldsTableHtml([
+    emailFieldRowHtml("Alias", escapeHtmlForEmail(c.alias)),
+    ...(c.cvu ? [emailFieldRowHtml("CVU", escapeHtmlForEmail(c.cvu))] : []),
+    ...(c.cbu ? [emailFieldRowHtml("CBU", escapeHtmlForEmail(c.cbu))] : []),
+    emailFieldRowHtml("Titular", escapeHtmlForEmail(c.account_holder_name)),
+    emailFieldRowHtml("CUIT", escapeHtmlForEmail(c.account_holder_tax_id)),
+    ...(c.account_number ? [emailFieldRowHtml("Cuenta", escapeHtmlForEmail(c.account_number))] : [])
+  ].join(""))).join("");
+  const avisoPago = "Recibido o acreditado el pago se procesa el pedido. El comprobante podés enviarlo por WhatsApp al +54 9 11 3022-6565.";
+
+  const summary = buildSummaryBlocks(env, {
+    items: Array.from(groups.values()),
+    subtotalNoDiscountArs,
+    volumeDiscountPercentage: input.volumeDiscountPercentage,
+    productsTotalArs,
+    subtotalNoTaxArs,
+    vatLabel: input.vatLabel,
+    packagingBoxes: input.packagingBoxes,
+    entrega: {
+      method: input.shipping.method,
+      address: input.shipping.address ?? null,
+      shippingAmountArs: input.shippingAmountArs,
+      customerPhone: phone,
+      customerWaUrl: buildCustomerWhatsAppUrl(input.customer.codigoArea, input.customer.celular)
+    },
+    pago: {
+      methodLabel: "Transferencia bancaria",
+      transferDiscountPercentage: input.transferDiscount.percentage,
+      transferDiscountAmountArs: input.transferDiscount.amountArs,
+      detailsHtml: `${cuentaHtml}
+          <p style="margin:12px 0 0;padding:10px 12px;background-color:#e9f7ef;border-radius:8px;text-align:center;font-family:${FONT_BODY};font-size:12px;color:#1e7e34;font-weight:bold;">${avisoPago}</p>`,
+      detailsText: [
+        ...transferAccounts.flatMap(c => [
+          `Alias: ${c.alias}`,
+          ...(c.cvu ? [`CVU: ${c.cvu}`] : []),
+          ...(c.cbu ? [`CBU: ${c.cbu}`] : []),
+          `Titular: ${c.account_holder_name}`,
+          `CUIT: ${c.account_holder_tax_id}`,
+          ...(c.account_number ? [`Cuenta: ${c.account_number}`] : [])
+        ]),
+        "",
+        avisoPago
+      ]
+    },
+    commission: null,
+    totalArs: input.totalArs
+  });
+
+  const email = assembleEmail(env, `Pedido #${input.orderRef}`, datos, summary);
+  return { subject: `Orden de Compra #${input.orderRef}`, html: email.html, text: email.text };
+}
+
 /**
- * Mail de confirmación de pago aprobado por Mercado Pago, disparado desde
- * MercadoPagoCheckoutService.processPayment. Misma estructura que
- * sendTransferOrderConfirmationEmail. El embalaje se recalcula acá a partir
- * de order_items + código postal, igual que en el mail de transferencia.
+ * Mail de confirmación de pago aprobado por Mercado Pago, disparado desde el
+ * procesamiento del webhook. Misma estructura que el mail de transferencia. El
+ * embalaje se recalcula a partir de order_items + código postal (ver
+ * loadMercadoPagoOrderEmailData).
  *
  * El % de descuento por volumen NO se muestra (filas Subtotal / Descuento)
  * porque no se persiste en ningún lado (ni en orders ni en order_items):
@@ -713,170 +629,90 @@ export async function sendMercadoPagoOrderConfirmationEmail(
   payment: MercadoPagoPaymentResponse
 ): Promise<void> {
   try {
-    const supabase = getSupabase(env);
-    const [orderResult, itemsResult, customerResult, addressResult, taxes] = await Promise.all([
-      supabase
-        .from("orders")
-        .select("id, total_amount, subtotal_amount, shipping_amount, embalaje_amount, payment_commission_percentage, payment_commission_amount")
-        .eq("id", orderId)
-        .single(),
-      supabase
-        .from("order_items")
-        .select(`
-          product_variant_id,
-          quantity,
-          unit_price,
-          product_variants (
-            sku,
-            units_per_pack,
-            products (
-              id,
-              name,
-              product_images ( image_url, position )
-            )
-          )
-        `)
-        .eq("order_id", orderId),
-      supabase
-        .from("order_customers")
-        .select("full_name, email, tax_id, phone_area_code, phone_number")
-        .eq("order_id", orderId)
-        .single(),
-      supabase
-        .from("order_addresses")
-        .select("recipient_name, postal_code, province, locality, county, street, street_number, floor, apartment, shipping_method")
-        .eq("order_id", orderId)
-        .maybeSingle(),
-      getCachedTaxes(env)
-    ]);
-
-    if (orderResult.error || !orderResult.data) {
-      throw new Error(`Unable to load order confirmation data: ${orderResult.error?.message ?? "order not found"}`);
-    }
-    if (itemsResult.error) {
-      throw new Error(`Unable to load order items for email: ${itemsResult.error.message}`);
-    }
-    if (customerResult.error || !customerResult.data) {
-      throw new Error(`Unable to load order customer for email: ${customerResult.error?.message ?? "customer not found"}`);
-    }
-    if (addressResult.error) {
-      // No bloqueamos el envío del mail por esto: preferimos mandar el mail
-      // sin la sección de envío (fallback a "pickup"/coordinación) antes que
-      // no mandar nada.
-      console.error("Unable to load order_addresses for confirmation email:", addressResult.error.message);
-    }
-
-    const order = orderResult.data as unknown as OrderConfirmationOrderRow;
-    const items = (itemsResult.data ?? []) as unknown as OrderConfirmationItemRow[];
-    const customer = customerResult.data as unknown as OrderConfirmationCustomerRow;
-    const address = (addressResult.data ?? null) as unknown as OrderConfirmationAddressRow | null;
-    const getVariant = (value: OrderConfirmationVariantRow | OrderConfirmationVariantRow[] | null) =>
-      Array.isArray(value) ? value[0] : value;
-    const getProduct = (value: OrderConfirmationProductRow | OrderConfirmationProductRow[] | null) =>
-      Array.isArray(value) ? value[0] : value;
-    const phone = formatCustomerPhone(customer.phone_area_code, customer.phone_number);
-    const customerWaUrl = buildCustomerWhatsAppUrl(customer.phone_area_code, customer.phone_number);
-
-    const ivaTax = taxes.find(t => t.name.toUpperCase() === "IVA");
-    const vatLabel = ivaTax?.is_computable ? "IVA Incluido" : "IVA no incluido";
-
-    const datos = buildDatosPersonales({
-      nombre: customer.full_name,
-      email: customer.email,
-      phone,
-      cuit: customer.tax_id
-    });
-
-    // Productos agrupados por producto (varias presentaciones del mismo producto suman en una línea).
-    const groups = new Map<string, SummaryItem>();
-    for (const item of items) {
-      const variant = getVariant(item.product_variants);
-      const product = getProduct(variant?.products ?? null);
-      const quantity = Number(item.quantity);
-      const units = Number(variant?.units_per_pack ?? 1) * quantity;
-      const subtotal = Number(item.unit_price) * quantity;
-      const key = product?.id ?? variant?.sku ?? item.product_variant_id;
-      const existing = groups.get(key);
-      if (existing) {
-        existing.totalUnits += units;
-        existing.subtotalArs += subtotal;
-      } else {
-        const firstImage = [...(product?.product_images ?? [])].sort((a, b) => a.position - b.position)[0]?.image_url ?? null;
-        groups.set(key, { name: product?.name ?? variant?.sku ?? "", totalUnits: units, subtotalArs: subtotal, imageUrl: firstImage });
-      }
-    }
-
-    // ---- Embalaje: las cajas no se guardan en la orden, se reconstruyen a partir de order_items
-    // (el importe ya está repartido dentro de order_items.unit_price, guardado en
-    // orders.embalaje_amount solo para el registro). En órdenes viejas (antes del reparto por
-    // caja) el embalaje iba dentro del precio de cada pack: ahí solo se muestran las cajas del
-    // envío a domicilio, sin relación con lo cobrado. ----
-    const hasBoxEmbalaje = Number(order.embalaje_amount ?? 0) > 0;
-    let packagingBoxes: PackagingBox[] = [];
-    const productGroups = Array.from(items.reduce((acc, item) => {
-      const variant = getVariant(item.product_variants);
-      const product = getProduct(variant?.products ?? null);
-      if (!product?.id) return acc;
-      const unitsPerPack = Number(variant?.units_per_pack ?? 1);
-      acc.set(product.id, (acc.get(product.id) ?? 0) + Number(item.quantity) * unitsPerPack);
-      return acc;
-    }, new Map<string, number>()), ([product_id, units]) => ({ product_id, units }));
-    try {
-      if (hasBoxEmbalaje) {
-        packagingBoxes = (await resolvePackagingPlan(env, productGroups)).boxes;
-      } else if (address?.shipping_method === "delivery" && address.postal_code) {
-        const resolution = await resolveShippingRate(env, address.postal_code, productGroups, address.province);
-        packagingBoxes = resolution?.boxes ?? [];
-      }
-    } catch (error) {
-      console.error("Unable to recompute packaging boxes for confirmation email:", error);
-    }
-
-    const commissionAmount = Number(order.payment_commission_amount ?? 0);
-    const commissionPercentage = Number(order.payment_commission_percentage ?? 0);
-
-    const summary = buildSummaryBlocks(env, {
-      items: Array.from(groups.values()),
-      subtotalNoDiscountArs: null,
-      volumeDiscountPercentage: 0,
-      productsTotalArs: Number(order.subtotal_amount),
-      subtotalNoTaxArs: null,
-      vatLabel,
-      packagingBoxes,
-      entrega: {
-        method: address?.shipping_method ?? null,
-        address,
-        shippingAmountArs: Number(order.shipping_amount),
-        customerPhone: phone,
-        customerWaUrl
-      },
-      pago: {
-        methodLabel: "Mercado Pago",
-        transferDiscountPercentage: 0,
-        transferDiscountAmountArs: 0,
-        detailsHtml: emailFieldsTableHtml([
-          emailFieldRowHtml("ID de pago", escapeHtmlForEmail(payment.id)),
-          emailFieldRowHtml("Estado", escapeHtmlForEmail(payment.status)),
-          emailFieldRowHtml("Fecha de aprobación", escapeHtmlForEmail(payment.date_approved))
-        ].join("")),
-        detailsText: [
-          `ID de pago: ${payment.id}`,
-          `Estado: ${payment.status}`,
-          `Fecha de aprobación: ${payment.date_approved}`
-        ]
-      },
-      commission: commissionAmount > 0 ? { percentage: commissionPercentage, amountArs: commissionAmount } : null,
-      totalArs: Number(order.total_amount)
-    });
-
-    const email = assembleEmail(env, `Pedido #${orderId}`, datos, summary);
-    await sendConfirmationEmail(env, {
-      to: customer.email,
-      subject: `Confirmación de tu pedido #${orderId} - Brotalia`,
-      html: email.html,
-      text: email.text
-    });
+    const data = await loadMercadoPagoOrderEmailData(env, orderId);
+    const email = buildMercadoPagoOrderEmail(env, orderId, data, payment);
+    await sendEmail(env, { to: data.customer.email, ...email });
   } catch (error) {
     console.error("Unable to send order confirmation email", error);
   }
+}
+
+/** Arma el mail de una orden pagada por Mercado Pago (función pura: no consulta ni envía nada). */
+export function buildMercadoPagoOrderEmail(
+  env: Env,
+  orderId: string,
+  { order, items, customer, address, taxes, packagingBoxes }: MercadoPagoOrderEmailData,
+  payment: MercadoPagoPaymentResponse
+): ConfirmationEmail {
+  const phone = formatCustomerPhone(customer.phone_area_code, customer.phone_number);
+  const customerWaUrl = buildCustomerWhatsAppUrl(customer.phone_area_code, customer.phone_number);
+
+  const ivaTax = taxes.find(t => t.name.toUpperCase() === "IVA");
+  const vatLabel = ivaTax?.is_computable ? "IVA Incluido" : "IVA no incluido";
+
+  const datos = buildDatosPersonales({
+    nombre: customer.full_name,
+    email: customer.email,
+    phone,
+    cuit: customer.tax_id
+  });
+
+  // Productos agrupados por producto (varias presentaciones del mismo producto suman en una línea).
+  const groups = new Map<string, SummaryItem>();
+  for (const item of items) {
+    const variant = firstRow(item.product_variants);
+    const product = firstRow(variant?.products ?? null);
+    const quantity = Number(item.quantity);
+    const units = Number(variant?.units_per_pack ?? 1) * quantity;
+    const subtotal = Number(item.unit_price) * quantity;
+    const key = product?.id ?? variant?.sku ?? item.product_variant_id;
+    const existing = groups.get(key);
+    if (existing) {
+      existing.totalUnits += units;
+      existing.subtotalArs += subtotal;
+    } else {
+      const firstImage = [...(product?.product_images ?? [])].sort((a, b) => a.position - b.position)[0]?.image_url ?? null;
+      groups.set(key, { name: product?.name ?? variant?.sku ?? "", totalUnits: units, subtotalArs: subtotal, imageUrl: firstImage });
+    }
+  }
+
+  const commissionAmount = Number(order.payment_commission_amount ?? 0);
+  const commissionPercentage = Number(order.payment_commission_percentage ?? 0);
+
+  const summary = buildSummaryBlocks(env, {
+    items: Array.from(groups.values()),
+    subtotalNoDiscountArs: null,
+    volumeDiscountPercentage: 0,
+    productsTotalArs: Number(order.subtotal_amount),
+    subtotalNoTaxArs: null,
+    vatLabel,
+    packagingBoxes,
+    entrega: {
+      method: address?.shipping_method ?? null,
+      address,
+      shippingAmountArs: Number(order.shipping_amount),
+      customerPhone: phone,
+      customerWaUrl
+    },
+    pago: {
+      methodLabel: "Mercado Pago",
+      transferDiscountPercentage: 0,
+      transferDiscountAmountArs: 0,
+      detailsHtml: emailFieldsTableHtml([
+        emailFieldRowHtml("ID de pago", escapeHtmlForEmail(payment.id)),
+        emailFieldRowHtml("Estado", escapeHtmlForEmail(payment.status)),
+        emailFieldRowHtml("Fecha de aprobación", escapeHtmlForEmail(payment.date_approved))
+      ].join("")),
+      detailsText: [
+        `ID de pago: ${payment.id}`,
+        `Estado: ${payment.status}`,
+        `Fecha de aprobación: ${payment.date_approved}`
+      ]
+    },
+    commission: commissionAmount > 0 ? { percentage: commissionPercentage, amountArs: commissionAmount } : null,
+    totalArs: Number(order.total_amount)
+  });
+
+  const email = assembleEmail(env, `Pedido #${orderId}`, datos, summary);
+  return { subject: `Confirmación de tu pedido #${orderId} - Brotalia`, html: email.html, text: email.text };
 }

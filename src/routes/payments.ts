@@ -1,6 +1,6 @@
 import { errorResponse, jsonResponse, priceChangedResponse } from "../lib/response";
 import { parseCreatePaymentInput, PaymentInputError } from "../lib/payment-input.validation";
-import { PaymentService } from "../services/mercadopago-checkout.service";
+import { MercadoPagoCheckoutService } from "../services/mercadopago-checkout.service";
 import { OrderQuoteError, PriceChangedError } from "../services/order-quote.service";
 import { IdempotencyConflictError } from "../services/orders.repository";
 import { RouteContext } from "../lib/router";
@@ -20,7 +20,7 @@ export async function handleCreatePayment({ request, env }: RouteContext): Promi
     if (captchaFailure) return captchaFailure;
 
     const input = parseCreatePaymentInput(body);
-    const result = await new PaymentService(env).createCheckout(input);
+    const result = await new MercadoPagoCheckoutService(env).createCheckout(input);
     return jsonResponse(result);
   } catch (error: unknown) {
     if (error instanceof PriceChangedError) return priceChangedResponse(error.currentTotalArs, error.expectedTotalArs);

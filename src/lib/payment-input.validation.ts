@@ -203,3 +203,48 @@ export function validateCustomerInput(customer: PaymentCustomerInput): void {
     throw new PaymentInputError("customer.celular must contain only digits");
   }
 }
+
+/** Pedido por transferencia (POST /orders) ya validado. `expectedTotalArs` queda sin
+ *  parsear a propósito: se valida después de la cotización, como siempre. */
+export interface TransferOrderInput {
+  items: PaymentItemInput[];
+  customer: PaymentCustomerInput;
+  shipping: ShippingInput;
+  idempotencyKey?: string;
+  expectedTotalArs: unknown;
+}
+
+/**
+ * Valida el cuerpo de POST /orders en el mismo orden y con los mismos mensajes de siempre
+ * (distintos de los de /payments/create: el frontend y los tests dependen de ellos).
+ * A diferencia de parseCreatePaymentInput, el cliente se usa tal cual llega (sin trim).
+ */
+export function parseTransferOrderInput(body: Record<string, unknown>): TransferOrderInput {
+  const shipping = parseShippingInput(body.shipping);
+  validateShippingInput(shipping);
+
+  const items = body.items;
+  if (!Array.isArray(items) || items.length === 0 || items.length > MAX_ORDER_ITEMS) {
+    throw new PaymentInputError(`items must contain between 1 and ${MAX_ORDER_ITEMS} entries`);
+  }
+
+  const customer = body.customer as PaymentCustomerInput | undefined;
+  if (!customer || !isValidEmail(customer.email)) {
+    throw new PaymentInputError("customer.email is invalid");
+  }
+  validateCustomerInput(customer);
+
+  for (const [index, item] of items.entries()) {
+    if (!item || typeof item.variant_id !== "string" || !Number.isInteger(item.quantity) || item.quantity <= 0) {
+      throw new PaymentInputError(`Invalid item at index ${index}`);
+    }
+  }
+
+  return {
+    items: items as PaymentItemInput[],
+    customer,
+    shipping,
+    idempotencyKey: parseIdempotencyKey(body.idempotency_key),
+    expectedTotalArs: body.expected_total_ars
+  };
+}

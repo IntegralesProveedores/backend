@@ -188,3 +188,73 @@ export async function createOrderRecord(
 
   return order;
 }
+
+/** No se pudieron leer los ítems de una orden que sí existe. */
+export class OrderItemsLoadError extends Error {
+  constructor(message: string) {
+    super(`Unable to load order items: ${message}`);
+    this.name = "OrderItemsLoadError";
+  }
+}
+
+export interface OrderDetailRow {
+  status: string | null;
+  payment_status: string | null;
+  shipping_status: string | null;
+  subtotal_amount: number | string;
+  shipping_amount: number | string;
+  total_amount: number | string;
+  payment_discount_percentage: number | string | null;
+  payment_discount_amount: number | string | null;
+  external_reference: string;
+  created_at: string;
+}
+
+export interface OrderDetailItemRow {
+  id: string;
+  product_variant_id: string;
+  quantity: number;
+  unit_price: number | string;
+}
+
+/**
+ * Orden + ítems para GET /orders/:id (sin datos del cliente). `null` si la orden no existe
+ * (o no se pudo leer: tiene prioridad sobre un error en los ítems); OrderItemsLoadError si
+ * la orden existe pero fallan los ítems.
+ */
+export async function findOrderDetail(
+  env: Env,
+  orderId: string
+): Promise<{ order: OrderDetailRow; items: OrderDetailItemRow[] } | null> {
+  const supabase = getSupabase(env);
+  const [orderResult, itemsResult] = await Promise.all([
+    supabase
+      .from("orders")
+      .select("status, payment_status, shipping_status, subtotal_amount, shipping_amount, total_amount, payment_discount_percentage, payment_discount_amount, external_reference, created_at")
+      .eq("id", orderId)
+      .single(),
+    supabase.from("order_items").select("*").eq("order_id", orderId)
+  ]);
+
+  if (orderResult.error || !orderResult.data) return null;
+  if (itemsResult.error) throw new OrderItemsLoadError(itemsResult.error.message);
+
+  return {
+    order: orderResult.data as unknown as OrderDetailRow,
+    items: (itemsResult.data ?? []) as unknown as OrderDetailItemRow[]
+  };
+}
+
+/** Estado de una orden por su N° (external_reference); `null` si no existe. Tira si falla la lectura. */
+export async function findOrderStatusByReference(
+  env: Env,
+  externalReference: string
+): Promise<{ status: string | null; payment_status: string | null } | null> {
+  const { data, error } = await getSupabase(env)
+    .from("orders")
+    .select("status, payment_status")
+    .eq("external_reference", externalReference)
+    .maybeSingle();
+  if (error) throw new Error(`Unable to load order status: ${error.message}`);
+  return data as { status: string | null; payment_status: string | null } | null;
+}

@@ -18,17 +18,60 @@ export class DuplicateOrderError extends Error {
   }
 }
 
+/** La idempotency_key ya se usó para un pedido distinto (otros ítems) o para una orden que
+ *  se canceló: no es un reintento del mismo intento. El frontend tiene que mandar una key nueva. */
+export class IdempotencyConflictError extends Error {
+  constructor(public readonly externalReference: string) {
+    super(`idempotency_key already used by a different or cancelled order (${externalReference})`);
+    this.name = "IdempotencyConflictError";
+  }
+}
+
+export interface IdempotentOrder {
+  id: string;
+  external_reference: string;
+  status?: string | null;
+  order_items?: Array<{ product_variant_id: string; quantity: number }>;
+}
+
 export async function findOrderByIdempotencyKey(
   env: Env,
   idempotencyKey: string
-): Promise<{ id: string; external_reference: string } | null> {
+): Promise<IdempotentOrder | null> {
   const { data, error } = await getSupabase(env)
     .from("orders")
-    .select("id, external_reference")
+    .select("id, external_reference, status, order_items(product_variant_id, quantity)")
     .eq("idempotency_key", idempotencyKey)
     .maybeSingle();
   if (error) throw new Error(`Unable to check idempotency_key: ${error.message}`);
-  return data as { id: string; external_reference: string } | null;
+  return data as IdempotentOrder | null;
+}
+
+function unitsByVariant(items: Array<{ variant_id: string; quantity: number }>): Map<string, number> {
+  const map = new Map<string, number>();
+  for (const item of items) map.set(item.variant_id, (map.get(item.variant_id) ?? 0) + Number(item.quantity));
+  return map;
+}
+
+/**
+ * ¿Es la misma orden que ya se creó con esta key? Solo si no está cancelada y tiene
+ * exactamente los mismos ítems (presentación y cantidad). Si no, reusarla dejaría una
+ * orden con los ítems viejos cobrando el total nuevo.
+ */
+export function isSameIdempotentOrder(
+  existing: IdempotentOrder,
+  requestItems: Array<{ variant_id: string; quantity: number }>
+): boolean {
+  if (existing.status === "cancelled") return false;
+  const stored = unitsByVariant(
+    (existing.order_items ?? []).map(i => ({ variant_id: i.product_variant_id, quantity: i.quantity }))
+  );
+  const requested = unitsByVariant(requestItems);
+  if (stored.size !== requested.size) return false;
+  for (const [variantId, quantity] of requested) {
+    if (stored.get(variantId) !== quantity) return false;
+  }
+  return true;
 }
 
 export async function createOrderRecord(

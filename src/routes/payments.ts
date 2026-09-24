@@ -2,6 +2,7 @@ import { errorResponse, jsonResponse, priceChangedResponse } from "../lib/respon
 import { parseCreatePaymentInput, PaymentInputError } from "../lib/payment-input.validation";
 import { PaymentService } from "../services/mercadopago-checkout.service";
 import { OrderQuoteError, PriceChangedError } from "../services/order-quote.service";
+import { IdempotencyConflictError } from "../services/orders.repository";
 import { RouteContext } from "../lib/router";
 import { enforceRateLimit } from "../lib/rate-limit";
 import { verifyTurnstile } from "../lib/turnstile";
@@ -23,6 +24,7 @@ export async function handleCreatePayment({ request, env }: RouteContext): Promi
     return jsonResponse(result);
   } catch (error: unknown) {
     if (error instanceof PriceChangedError) return priceChangedResponse(error.currentTotalArs, error.expectedTotalArs);
+    if (error instanceof IdempotencyConflictError) return errorResponse("idempotency_conflict", 409);
     if (error instanceof PaymentInputError || error instanceof OrderQuoteError) {
       return errorResponse(error.message, 400);
     }

@@ -17,7 +17,13 @@ import {
   MAX_ORDER_ITEMS
 } from "../lib/payment-input.validation";
 import { logEvent, setOrderRef } from "../lib/log";
-import { createOrderRecord, findOrderByIdempotencyKey, DuplicateOrderError } from "./orders.repository";
+import {
+  createOrderRecord,
+  findOrderByIdempotencyKey,
+  DuplicateOrderError,
+  IdempotencyConflictError,
+  isSameIdempotentOrder
+} from "./orders.repository";
 import { sendMercadoPagoOrderConfirmationEmail } from "./email/order-confirmation-templates";
 import { assertExpectedTotal, buildOrderQuote, OrderQuote, OrderQuoteError } from "./order-quote.service";
 
@@ -68,7 +74,14 @@ export class PaymentService {
       // ya se creó y ya descontó stock. No se crea otra: se reusa esa misma orden
       // (con el total recalculado a la cotización vigente) para un nuevo link de pago.
       const existing = await findOrderByIdempotencyKey(this.env, input.idempotency_key);
-      if (existing) return this.reissuePreferenceForExistingOrder(existing, input, quote, payment);
+      if (existing) {
+        // Misma key pero otro pedido (o la orden ya se canceló): reusarla dejaría los ítems
+        // viejos en la orden cobrando el total nuevo.
+        if (!isSameIdempotentOrder(existing, input.items)) {
+          throw new IdempotencyConflictError(existing.external_reference);
+        }
+        return this.reissuePreferenceForExistingOrder(existing, input, quote, payment);
+      }
     }
 
     const externalReference = crypto.randomUUID();

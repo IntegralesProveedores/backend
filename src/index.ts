@@ -16,6 +16,7 @@ import { handlePostalCode } from "./routes/postal-code";
 import { handleShippingQuote } from "./routes/shipping";
 import { handlePackagingQuote } from "./routes/packaging";
 import { releaseAbandonedOrders } from "./services/stock-release.service";
+import { applyCatalogFallback } from "./lib/catalog-fallback";
 import { getRequestId, logEvent, runWithRequestContext } from "./lib/log";
 
 const CORS_HEADERS = {
@@ -86,8 +87,8 @@ router.post("/payments/create", handleCreatePayment);
 router.post("/api/webhooks/mercadopago", handleMercadoPagoWebhook);
 
 export default {
-  async fetch(request: Request, env: any) {
-    return runWithRequestContext(crypto.randomUUID(), () => handleRequest(request, env));
+  async fetch(request: Request, env: any, ctx: ExecutionContext) {
+    return runWithRequestContext(crypto.randomUUID(), () => handleRequest(request, env, ctx));
   },
 
   // Cron (wrangler.jsonc > triggers): cancela órdenes pendientes abandonadas y devuelve su stock.
@@ -100,25 +101,25 @@ export default {
   }
 };
 
-async function handleRequest(request: Request, env: any): Promise<Response> {
-    const sanitizedEnv = sanitizeEnv(env);
+async function handleRequest(request: Request, env: any, ctx: ExecutionContext): Promise<Response> {
+  const sanitizedEnv = sanitizeEnv(env);
 
-    if (request.method === "OPTIONS") {
-      return withCors(request, sanitizedEnv, new Response(null, { status: 204, headers: CORS_HEADERS }));
-    }
+  if (request.method === "OPTIONS") {
+    return withCors(request, sanitizedEnv, new Response(null, { status: 204, headers: CORS_HEADERS }));
+  }
 
-    const hostHeader = (request.headers.get("host") || "").toLowerCase();
+  const hostHeader = (request.headers.get("host") || "").toLowerCase();
 
-    try {
-      const response = await router.handle(request, sanitizedEnv);
-      return withCors(request, sanitizedEnv, response);
-    } catch (e: any) {
-      return withCors(request, sanitizedEnv,
-        errorResponse("Internal server error", 500, {
-          original_message: e.message,
-          stack: e.stack,
-          host: hostHeader
-        })
-      );
-    }
+  let response: Response;
+  try {
+    response = await router.handle(request, sanitizedEnv);
+  } catch (e: any) {
+    response = errorResponse("Internal server error", 500, {
+      original_message: e.message,
+      stack: e.stack,
+      host: hostHeader
+    });
+  }
+  response = await applyCatalogFallback(request, sanitizedEnv, ctx, response);
+  return withCors(request, sanitizedEnv, response);
 }

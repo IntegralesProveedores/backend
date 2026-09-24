@@ -2,7 +2,7 @@ import { logEvent, setOrderRef } from "../lib/log";
 import { getSupabase } from "../services/db";
 import { errorResponse, jsonResponse, priceChangedResponse } from "../lib/response";
 import { calculateOrderPayment } from "../lib/pricing";
-import { createOrderRecord, findOrderByIdempotencyKey, DuplicateOrderError } from "../services/orders.repository";
+import { createOrderRecord, findOrderByIdempotencyKey, DuplicateOrderError, isSameIdempotentOrder } from "../services/orders.repository";
 import {
   parseShippingInput,
   PaymentInputError,
@@ -109,6 +109,12 @@ export async function handleCreateOrder({ request, env }: { request: Request; en
       const existing = await findOrderByIdempotencyKey(env, idempotencyKey);
       if (existing) {
         setOrderRef(existing.external_reference);
+        // Misma key pero otro pedido (o la orden ya se canceló): no se devuelve la orden vieja
+        // como si fuera ésta. El frontend genera una key nueva y el cliente confirma de nuevo.
+        if (!isSameIdempotentOrder(existing, items)) {
+          logEvent("warn", "idempotency_conflict", { order_ref: existing.external_reference });
+          return errorResponse("idempotency_conflict", 409);
+        }
         return jsonResponse({ order_ref: existing.external_reference, duplicate: true });
       }
     }
